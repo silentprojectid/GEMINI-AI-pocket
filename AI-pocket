@@ -1568,26 +1568,41 @@ void showLoadingAnimation() {
   display.clearDisplay();
   drawBatteryIndicator();
   
+  // Pulsing text
   display.setTextSize(1);
-  display.setCursor(20, 10);
+  int pulse = sin(millis() / 400.0) * 2;
+  display.setCursor(35 + pulse, 10);
   display.print("Loading AI");
-  
-  int dots = (loadingFrame % 4);
+  int dots = (millis() / 500) % 4;
   for (int i = 0; i < dots; i++) {
     display.print(".");
   }
-  
+
   int centerX = SCREEN_WIDTH / 2;
-  int centerY = 35;
-  int radius = 12;
-  
+  int centerY = 40;
+  int radius = 15;
+  int smallRadius = 8;
+
+  // Orbit paths
   display.drawCircle(centerX, centerY, radius, SSD1306_WHITE);
+  display.drawCircle(centerX, centerY, smallRadius, SSD1306_WHITE);
+
+  // Outer orbiting spheres
+  float angle1 = (millis() / 1000.0);
+  int x1 = centerX + cos(angle1) * radius;
+  int y1 = centerY + sin(angle1) * radius;
+  display.fillCircle(x1, y1, 3, SSD1306_WHITE);
+
+  float angle2 = (millis() / 1000.0) + PI;
+  int x2 = centerX + cos(angle2) * radius;
+  int y2 = centerY + sin(angle2) * radius;
+  display.fillCircle(x2, y2, 3, SSD1306_WHITE);
   
-  float angle = loadingFrame * PI / 4;
-  int x2 = centerX + cos(angle) * radius;
-  int y2 = centerY + sin(angle) * radius;
-  
-  display.drawLine(centerX, centerY, x2, y2, SSD1306_WHITE);
+  // Inner orbiting sphere
+  float angle3 = -(millis() / 600.0);
+  int x3 = centerX + cos(angle3) * smallRadius;
+  int y3 = centerY + sin(angle3) * smallRadius;
+  display.fillCircle(x3, y3, 2, SSD1306_WHITE);
   
   display.display();
 }
