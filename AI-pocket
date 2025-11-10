@@ -1613,26 +1613,56 @@ void showLoadingAnimation() {
 
 void showProgressBar(String title, int percent) {
   display.clearDisplay();
-  
+
   display.setTextSize(1);
   int titleW = title.length() * 6;
   display.setCursor((SCREEN_WIDTH - titleW) / 2, 15);
   display.print(title);
-  
+
   int barX = 10;
   int barY = 30;
   int barW = SCREEN_WIDTH - 20;
-  int barH = 12;
-  
+  int barH = 14;
+
+  // Draw the outline
   display.drawRect(barX, barY, barW, barH, SSD1306_WHITE);
   
-  int fillW = map(percent, 0, 100, 0, barW - 4);
-  display.fillRect(barX + 2, barY + 2, fillW, barH - 4, SSD1306_WHITE);
-  
-  display.setCursor(55, 47);
-  display.print(percent);
-  display.print("%");
-  
+  // Calculate the filled width
+  int fillW = map(percent, 0, 100, 0, barW - 2);
+  fillW = constrain(fillW, 0, barW - 2);
+
+  // Draw animated diagonal stripes
+  int stripeOffset = (millis() / 20) % 10; // Controls speed and spacing
+  for (int i = stripeOffset - barH; i < fillW; i += 10) {
+    int x1 = barX + 1 + i;
+    int y1 = barY + 1;
+    int x2 = barX + 1 + i + barH - 2;
+    int y2 = barY + barH - 1;
+
+    // Simple clipping for the line
+    int clippedX1 = max(barX + 1, x1);
+    int clippedY1 = y1 + (clippedX1 - x1);
+    int clippedX2 = min(barX + 1 + fillW, x2);
+    int clippedY2 = y2 - (x2 - clippedX2);
+
+    if (clippedX1 < clippedX2) {
+      display.drawLine(clippedX1, clippedY1, clippedX2, clippedY2, SSD1306_WHITE);
+    }
+  }
+
+  // Percentage text in the center
+  String percentText = String(percent) + "%";
+  int textW = percentText.length() * 6;
+  int textX = barX + (barW - textW) / 2;
+  int textY = barY + 3;
+
+  // Invert the area under the text for readability
+  display.fillRect(textX - 2, textY - 1, textW + 4, 10, SSD1306_WHITE);
+  display.setTextColor(SSD1306_BLACK);
+  display.setCursor(textX, textY);
+  display.print(percentText);
+  display.setTextColor(SSD1306_WHITE);
+
   display.display();
 }
 
