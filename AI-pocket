@@ -223,23 +223,27 @@ int settingsMenuSelection = 0;
 
 // Icons (8x8 pixel bitmaps)
 const unsigned char ICON_WIFI[] PROGMEM = {
-  0x00, 0x3C, 0x42, 0x99, 0x24, 0x00, 0x18, 0x00
+  0x00, 0x18, 0x24, 0x5A, 0x24, 0x18, 0x00, 0x00
 };
 
 const unsigned char ICON_CHAT[] PROGMEM = {
-  0x7E, 0xFF, 0xC3, 0xC3, 0xC3, 0xFF, 0x18, 0x00
+  0x18, 0x3C, 0xA5, 0xB9, 0x81, 0x3C, 0x18, 0x00
 };
 
 const unsigned char ICON_CALC[] PROGMEM = {
-  0xFF, 0x81, 0x99, 0x81, 0x99, 0x81, 0xFF, 0x00
+  0x3E, 0xAA, 0x3E, 0xAA, 0x3E, 0xAA, 0x3E, 0x00
 };
 
 const unsigned char ICON_POWER[] PROGMEM = {
-  0x18, 0x3C, 0x7E, 0xFF, 0xFF, 0x7E, 0x3C, 0x18
+  0x0C, 0x1C, 0x04, 0x08, 0x20, 0x70, 0x60, 0x00
+};
+
+const unsigned char ICON_BATTERY_GUARD[] PROGMEM = {
+  0x3E, 0x81, 0x89, 0x89, 0xA5, 0x91, 0x3E, 0x00
 };
 
 const unsigned char ICON_SETTINGS[] PROGMEM = {
-  0x10, 0x38, 0x7C, 0xFE, 0x7C, 0x38, 0x10, 0x00
+  0x18, 0x3C, 0xB9, 0x18, 0xB9, 0x3C, 0x18, 0x00
 };
 
 const unsigned char ICON_ZEN[] PROGMEM = {
@@ -247,11 +251,11 @@ const unsigned char ICON_ZEN[] PROGMEM = {
 };
 
 const unsigned char ICON_MESSAGE[] PROGMEM = {
-  0x7E, 0x81, 0xA5, 0x81, 0xBD, 0x81, 0x7E, 0x00
+  0x3E, 0x82, 0x8A, 0x89, 0x91, 0xC1, 0x3E, 0x00
 };
 
 const unsigned char ICON_DEV[] PROGMEM = {
-  0x08, 0x14, 0x22, 0x41, 0x41, 0x22, 0x14, 0x08
+  0x3C, 0x24, 0x04, 0x18, 0x04, 0x04, 0x3C, 0x00
 };
 
 // Forward declarations
@@ -382,6 +386,9 @@ void setup() {
   Serial.println("\n=== ESP32-C3 AI-pocket ===");
   Serial.println("V0.1");
   
+  preferences.begin("wifi-creds", false);
+  preferences.begin("settings", false);
+  preferences.begin("esp-now", false);
   Wire.begin(SDA_PIN, SCL_PIN);
   
   pinMode(BTN_UP, INPUT_PULLUP);
@@ -405,12 +412,10 @@ void setup() {
     batteryTimestamps[i] = millis();
   }
   
-  preferences.begin("settings", false);
   wifiAutoOffEnabled = preferences.getBool("wifiAutoOff", false);
   fontSize = preferences.getInt("fontSize", 1);
   animSpeed = preferences.getInt("animSpeed", 100);
   devModeEnabled = preferences.getBool("devMode", false);
-  preferences.end();
   
   if(!display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS)) {
     Serial.println(F("SSD1306 allocation failed"));
@@ -427,10 +432,8 @@ void setup() {
   initESPNow();
   loadPeersFromPreferences();
   
-  preferences.begin("wifi-creds", false);
   String savedSSID = preferences.getString("ssid", "");
   String savedPassword = preferences.getString("password", "");
-  preferences.end();
   
   if (savedSSID.length() > 0) {
     showProgressBar("WiFi Connect", 0);
@@ -1003,10 +1006,8 @@ void connectToWiFi(String ssid, String password) {
   }
   
   if (WiFi.status() == WL_CONNECTED) {
-    preferences.begin("wifi-creds", false);
     preferences.putString("ssid", ssid);
     preferences.putString("password", password);
-    preferences.end();
     
     ledSuccess();
     showProgressBar("Connected!", 100);
@@ -1026,9 +1027,7 @@ void connectToWiFi(String ssid, String password) {
 }
 
 void forgetNetwork() {
-  preferences.begin("wifi-creds", false);
   preferences.clear();
-  preferences.end();
   WiFi.disconnect();
   showStatus("Network forgotten!", 2000);
   showWiFiMenu();
@@ -1614,26 +1613,56 @@ void showLoadingAnimation() {
 
 void showProgressBar(String title, int percent) {
   display.clearDisplay();
-  
+
   display.setTextSize(1);
   int titleW = title.length() * 6;
   display.setCursor((SCREEN_WIDTH - titleW) / 2, 15);
   display.print(title);
-  
+
   int barX = 10;
   int barY = 30;
   int barW = SCREEN_WIDTH - 20;
-  int barH = 12;
-  
+  int barH = 14;
+
+  // Draw the outline
   display.drawRect(barX, barY, barW, barH, SSD1306_WHITE);
   
-  int fillW = map(percent, 0, 100, 0, barW - 4);
-  display.fillRect(barX + 2, barY + 2, fillW, barH - 4, SSD1306_WHITE);
-  
-  display.setCursor(55, 47);
-  display.print(percent);
-  display.print("%");
-  
+  // Calculate the filled width
+  int fillW = map(percent, 0, 100, 0, barW - 2);
+  fillW = constrain(fillW, 0, barW - 2);
+
+  // Draw animated diagonal stripes
+  int stripeOffset = (millis() / 20) % 10; // Controls speed and spacing
+  for (int i = stripeOffset - barH; i < fillW; i += 10) {
+    int x1 = barX + 1 + i;
+    int y1 = barY + 1;
+    int x2 = barX + 1 + i + barH - 2;
+    int y2 = barY + barH - 1;
+
+    // Simple clipping for the line
+    int clippedX1 = max(barX + 1, x1);
+    int clippedY1 = y1 + (clippedX1 - x1);
+    int clippedX2 = min(barX + 1 + fillW, x2);
+    int clippedY2 = y2 - (x2 - clippedX2);
+
+    if (clippedX1 < clippedX2) {
+      display.drawLine(clippedX1, clippedY1, clippedX2, clippedY2, SSD1306_WHITE);
+    }
+  }
+
+  // Percentage text in the center
+  String percentText = String(percent) + "%";
+  int textW = percentText.length() * 6;
+  int textX = barX + (barW - textW) / 2;
+  int textY = barY + 3;
+
+  // Invert the area under the text for readability
+  display.fillRect(textX - 2, textY - 1, textW + 4, 10, SSD1306_WHITE);
+  display.setTextColor(SSD1306_BLACK);
+  display.setCursor(textX, textY);
+  display.print(percentText);
+  display.setTextColor(SSD1306_WHITE);
+
   display.display();
 }
 
@@ -2044,15 +2073,11 @@ void handleLeft() {
     case STATE_DISPLAY_SETTINGS:
       if (menuSelection == 0) {
         fontSize = max(1, fontSize - 1);
-        preferences.begin("settings", false);
         preferences.putInt("fontSize", fontSize);
-        preferences.end();
         showDisplaySettings();
       } else if (menuSelection == 1) {
         animSpeed = max(50, animSpeed - 50);
-        preferences.begin("settings", false);
         preferences.putInt("animSpeed", animSpeed);
-        preferences.end();
         showDisplaySettings();
       }
       break;
@@ -2073,15 +2098,11 @@ void handleRight() {
     case STATE_DISPLAY_SETTINGS:
       if (menuSelection == 0) {
         fontSize = min(2, fontSize + 1);
-        preferences.begin("settings", false);
         preferences.putInt("fontSize", fontSize);
-        preferences.end();
         showDisplaySettings();
       } else if (menuSelection == 1) {
         animSpeed = min(300, animSpeed + 50);
-        preferences.begin("settings", false);
         preferences.putInt("animSpeed", animSpeed);
-        preferences.end();
         showDisplaySettings();
       }
       break;
@@ -2973,9 +2994,7 @@ void handleSettingsMenuSelect() {
   switch(settingsMenuSelection) {
     case 0:
       wifiAutoOffEnabled = !wifiAutoOffEnabled;
-      preferences.begin("settings", false);
       preferences.putBool("wifiAutoOff", wifiAutoOffEnabled);
-      preferences.end();
       ledSuccess();
       if (wifiAutoOffEnabled) {
         lastWiFiActivity = millis();
@@ -2998,9 +3017,7 @@ void handleSettingsMenuSelect() {
       break;
     case 3:
       devModeEnabled = !devModeEnabled;
-      preferences.begin("settings", false);
       preferences.putBool("devMode", devModeEnabled);
-      preferences.end();
       ledSuccess();
       if (devModeEnabled) {
         showStatus("Developer Mode\nENABLED", 1500);
@@ -3204,7 +3221,7 @@ void showMainMenu() {
     {"WiFi", ICON_WIFI},
     {"Calculator", ICON_CALC},
     {"Power", ICON_POWER},
-    {"Battery Guard", ICON_POWER},
+    {"Battery Guard", ICON_BATTERY_GUARD},
     {"ESP-NOW", ICON_MESSAGE},
     {"Settings", ICON_SETTINGS},
     {"About", ICON_DEV}
