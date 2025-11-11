@@ -242,7 +242,8 @@ unsigned long lastSnakeMove;
 // Pong Game
 #define PADDLE_HEIGHT 16
 #define PADDLE_WIDTH 4
-int playerY, opponentY;
+float playerY;
+float opponentY;
 float ballX, ballY;
 float ballVelX, ballVelY;
 int playerScore, opponentScore;
@@ -909,7 +910,7 @@ void showSnakeGame() {
 
   // Draw snake
   for (int i = 0; i < snakeLength; i++) {
-    display.fillRect(snake[i].x * 8, snake[i].y * 8, 8, 8, SSD1306_WHITE);
+    display.fillRect(snake[i].x * 8 + 1, snake[i].y * 8 + 1, 6, 6, SSD1306_WHITE);
   }
 
   // Draw food
@@ -1016,7 +1017,8 @@ void updateSnakeGame() {
 // ========== PONG GAME ==========
 
 void initPongGame() {
-  playerY = opponentY = SCREEN_HEIGHT / 2 - PADDLE_HEIGHT / 2;
+  playerY = SCREEN_HEIGHT / 2 - PADDLE_HEIGHT / 2;
+  opponentY = SCREEN_HEIGHT / 2 - PADDLE_HEIGHT / 2;
   ballX = SCREEN_WIDTH / 2;
   ballY = SCREEN_HEIGHT / 2;
   ballVelX = 2.0;
@@ -1031,8 +1033,8 @@ void showPongGame() {
   display.clearDisplay();
 
   // Draw paddles
-  display.fillRect(0, playerY, PADDLE_WIDTH, PADDLE_HEIGHT, SSD1306_WHITE);
-  display.fillRect(SCREEN_WIDTH - PADDLE_WIDTH, opponentY, PADDLE_WIDTH, PADDLE_HEIGHT, SSD1306_WHITE);
+  display.fillRect(0, (int)playerY, PADDLE_WIDTH, PADDLE_HEIGHT, SSD1306_WHITE);
+  display.fillRect(SCREEN_WIDTH - PADDLE_WIDTH, (int)opponentY, PADDLE_WIDTH, PADDLE_HEIGHT, SSD1306_WHITE);
 
   // Draw ball
   display.fillCircle(ballX, ballY, 3, SSD1306_WHITE);
@@ -1100,11 +1102,20 @@ void updatePongGame() {
 
   // Opponent AI
   if (opponentY + PADDLE_HEIGHT / 2 < ballY) {
-    opponentY += 1;
+    opponentY += 1.2;
   } else {
-    opponentY -= 1;
+    opponentY -= 1.2;
   }
-  opponentY = max(0, min(SCREEN_HEIGHT - PADDLE_HEIGHT, opponentY));
+  opponentY = max(0, min(SCREEN_HEIGHT - PADDLE_HEIGHT, (int)opponentY));
+
+  // Player movement
+  if (digitalRead(BTN_UP) == LOW) {
+    playerY -= 1.5;
+  }
+  if (digitalRead(BTN_DOWN) == LOW) {
+    playerY += 1.5;
+  }
+  playerY = max(0.0f, min((float)(SCREEN_HEIGHT - PADDLE_HEIGHT), playerY));
 
   if (playerScore >= 5 || opponentScore >= 5) {
     pongGameOver = true;
@@ -2278,10 +2289,6 @@ void handleUp() {
     case STATE_SNAKE_GAME:
       if (snakeDir != DIR_DOWN) snakeDir = DIR_UP;
       break;
-    case STATE_PONG_GAME:
-      playerY -= 5;
-      if (playerY < 0) playerY = 0;
-      break;
   }
 }
 
@@ -2363,10 +2370,6 @@ void handleDown() {
       break;
     case STATE_SNAKE_GAME:
       if (snakeDir != DIR_UP) snakeDir = DIR_DOWN;
-      break;
-    case STATE_PONG_GAME:
-      playerY += 5;
-      if (playerY > SCREEN_HEIGHT - PADDLE_HEIGHT) playerY = SCREEN_HEIGHT - PADDLE_HEIGHT;
       break;
   }
 }
