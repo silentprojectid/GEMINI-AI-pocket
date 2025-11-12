@@ -202,6 +202,7 @@ enum AppState {
   STATE_ESP_NOW_PEERS,
   STATE_ESP_NOW_ADD_PEER,
   STATE_ESP_NOW_RENAME_PEER,
+  STATE_ESP_NOW_DELETE_PEER,
   STATE_ABOUT,
   STATE_SNAKE_GAME,
   STATE_PONG_GAME,
@@ -319,6 +320,7 @@ void showESPNowInbox();
 void showESPNowPeers();
 void showESPNowAddPeer();
 void showESPNowRenamePeer();
+void showESPNowDeletePeer();
 void showAbout();
 void initSnakeGame();
 void showSnakeGame();
@@ -875,6 +877,43 @@ void showESPNowMenu() {
   display.print("Peers:");
   display.print(peerCount);
   
+  display.display();
+}
+
+void showESPNowDeletePeer() {
+  display.clearDisplay();
+  drawBatteryIndicator();
+  drawBreadcrumb();
+
+  display.setTextSize(1);
+  display.setCursor(20, 2);
+  display.print("DELETE PEER");
+
+  display.drawLine(0, 12, SCREEN_WIDTH, 12, SSD1306_WHITE);
+
+  if (peerCount == 0) {
+    display.setCursor(20, 30);
+    display.print("No peers!");
+  } else {
+    display.setCursor(5, 16);
+    display.print("Select peer to delete:");
+
+    for (int i = 0; i < min(peerCount, 3); i++) {
+      int y = 28 + i * 10;
+      display.setCursor(10, y);
+      if (i == selectedPeer) {
+        display.print("> ");
+      } else {
+        display.print("  ");
+      }
+
+      display.print(peers[i].name);
+    }
+
+    display.setCursor(5, 56);
+    display.print("SELECT to confirm");
+  }
+
   display.display();
 }
 
@@ -2076,6 +2115,9 @@ void refreshCurrentScreen() {
     case STATE_ESP_NOW_RENAME_PEER:
       showESPNowRenamePeer();
       break;
+    case STATE_ESP_NOW_DELETE_PEER:
+      showESPNowDeletePeer();
+      break;
     case STATE_ABOUT:
       showAbout();
       break;
@@ -2246,12 +2288,15 @@ void handleUp() {
       break;
     case STATE_ESP_NOW_SEND:
     case STATE_ESP_NOW_RENAME_PEER:
+    case STATE_ESP_NOW_DELETE_PEER:
       if (peerCount > 0) {
         selectedPeer = (selectedPeer - 1 + peerCount) % peerCount;
         if (currentState == STATE_ESP_NOW_SEND) {
           showESPNowSend();
-        } else {
+        } else if (currentState == STATE_ESP_NOW_RENAME_PEER) {
           showESPNowRenamePeer();
+        } else {
+          showESPNowDeletePeer();
         }
       }
       break;
@@ -2328,12 +2373,15 @@ void handleDown() {
       break;
     case STATE_ESP_NOW_SEND:
     case STATE_ESP_NOW_RENAME_PEER:
+    case STATE_ESP_NOW_DELETE_PEER:
       if (peerCount > 0) {
         selectedPeer = (selectedPeer + 1) % peerCount;
         if (currentState == STATE_ESP_NOW_SEND) {
           showESPNowSend();
-        } else {
+        } else if (currentState == STATE_ESP_NOW_RENAME_PEER) {
           showESPNowRenamePeer();
+        } else {
+          showESPNowDeletePeer();
         }
       }
       break;
@@ -2522,6 +2570,21 @@ void handleSelect() {
         drawKeyboard();
       }
       break;
+    case STATE_ESP_NOW_DELETE_PEER:
+      if (peerCount > 0 && selectedPeer >= 0 && selectedPeer < peerCount) {
+        esp_now_del_peer(peers[selectedPeer].address);
+        for (int i = selectedPeer; i < peerCount - 1; i++) {
+          peers[i] = peers[i + 1];
+        }
+        peerCount--;
+        savePeersToPreferences();
+        ledSuccess();
+        showStatus("Peer deleted!", 1500);
+        currentState = STATE_ESP_NOW_PEERS;
+        menuSelection = 0;
+        showESPNowPeers();
+      }
+      break;
     case STATE_ESP_NOW_INBOX:
       if (inboxCount > 0) {
         inbox[menuSelection].read = true;
@@ -2557,16 +2620,10 @@ void handleSelect() {
           break;
         case 2: // Delete Peer
           if (peerCount > 0) {
-            // Show confirmation and delete first peer (you can add selection logic)
-            esp_now_del_peer(peers[0].address);
-            for (int i = 0; i < peerCount - 1; i++) {
-              peers[i] = peers[i + 1];
-            }
-            peerCount--;
-            savePeersToPreferences();
-            ledSuccess();
-            showStatus("Peer deleted!", 1500);
-            showESPNowPeers();
+            previousState = currentState;
+            currentState = STATE_ESP_NOW_DELETE_PEER;
+            selectedPeer = 0;
+            showESPNowDeletePeer();
           } else {
             showStatus("No peers to delete!", 1500);
             showESPNowPeers();
@@ -3723,6 +3780,7 @@ void handleBackButton() {
       
     case STATE_ESP_NOW_ADD_PEER:
     case STATE_ESP_NOW_RENAME_PEER:
+    case STATE_ESP_NOW_DELETE_PEER:
       currentState = STATE_ESP_NOW_PEERS;
       menuSelection = 0;
       showESPNowPeers();
