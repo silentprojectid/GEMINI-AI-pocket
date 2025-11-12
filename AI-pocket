@@ -2264,7 +2264,7 @@ void handleUp() {
   switch(currentState) {
     case STATE_MAIN_MENU:
       menuSelection = (menuSelection - 1 + 10) % 10;
-      menuTargetScrollY = menuSelection * 12;
+      menuTargetScrollY = menuSelection * 22;
       break;
     case STATE_WIFI_MENU:
       menuSelection = (menuSelection - 1 + 3) % 3;
@@ -2349,7 +2349,7 @@ void handleDown() {
   switch(currentState) {
     case STATE_MAIN_MENU:
       menuSelection = (menuSelection + 1) % 10;
-      menuTargetScrollY = menuSelection * 12;
+      menuTargetScrollY = menuSelection * 22;
       break;
     case STATE_WIFI_MENU:
       menuSelection = (menuSelection + 1) % 3;
@@ -3636,37 +3636,46 @@ void showMainMenu() {
   };
 
   int itemCount = 10;
-  int itemHeight = 12;
+  int itemHeight = 22; // Increased spacing to fix overlap
   int halfScreen = SCREEN_HEIGHT / 2;
 
   for (int i = 0; i < itemCount; i++) {
-    float itemY = halfScreen + (i * itemHeight) - menuScrollY - itemHeight / 2;
-    float distance = abs(itemY - halfScreen);
-    float scale = max(0.5, 1.0 - (distance / halfScreen) * 0.4);
+    // Standard smooth scroll logic
+    float itemCenterY = halfScreen + (i * itemHeight) - menuScrollY;
 
-    if (itemY > -itemHeight && itemY < SCREEN_HEIGHT) {
+    // Center of the text/icon block
+    int blockHeight = (i == menuSelection) ? 16 : 8;
+    float itemTopY = itemCenterY - (blockHeight / 2.0);
 
-      int iconX = 10;
-      int iconY = itemY;
-      drawIcon(iconX, iconY, menuItems[i].icon);
-
-      int textX = iconX + 15;
-      int textY = itemY;
-
-      if (i == menuSelection) {
-        display.setTextSize(2);
-        display.setCursor(textX - 4, textY - 4);
-      } else {
-        display.setTextSize(1);
-        display.setCursor(textX, textY);
-      }
-      display.print(menuItems[i].text);
+    // Only draw if visible
+    if (itemTopY > SCREEN_HEIGHT || itemTopY + blockHeight < 0) {
+      continue;
     }
+
+    // --- Visual Flair ---
+    if (i == menuSelection) {
+      // Draw a selector bar behind the selected item
+      display.fillRoundRect(5, itemTopY - 3, SCREEN_WIDTH - 10, blockHeight + 6, 3, SSD1306_WHITE);
+      display.setTextColor(SSD1306_BLACK); // Text on top of selector is black
+    } else {
+      display.setTextColor(SSD1306_WHITE);
+    }
+
+    // --- Draw Icon and Text ---
+    drawIcon(10, itemTopY, menuItems[i].icon);
+
+    if (i == menuSelection) {
+      display.setTextSize(2);
+      display.setCursor(25, itemTopY);
+    } else {
+      display.setTextSize(1);
+      display.setCursor(25, itemTopY);
+    }
+    display.print(menuItems[i].text);
   }
   
-  display.drawFastVLine(SCREEN_WIDTH / 2, 0, SCREEN_HEIGHT, SSD1306_BLACK);
-  display.drawFastVLine(SCREEN_WIDTH / 2, 0, SCREEN_HEIGHT, SSD1306_BLACK);
-
+  // Reset color for next draw loop
+  display.setTextColor(SSD1306_WHITE);
   display.display();
 }
 
