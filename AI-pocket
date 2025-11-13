@@ -1912,24 +1912,9 @@ void handleBackButton() {
       showESPNowMenu();
       break;
     case STATE_ESP_NOW_PEERS:
-      if (menuSelection == 0) { // Add Peer
-        if (peerCount < MAX_ESP_PEERS) {
-          previousState = currentState;
-          currentState = STATE_ESP_NOW_ADD_PEER;
-          userInput = "";
-          cursorX = 0;
-          cursorY = 0;
-          currentKeyboardMode = MODE_UPPER; // Start with uppercase/numbers for MAC
-          drawKeyboard();
-        } else {
-          showStatus("Peer list is full!", 2000);
-          showESPNowPeers();
-        }
-      } else { // Back
-        currentState = STATE_ESP_NOW_MENU;
-        menuSelection = 0;
-        showESPNowMenu();
-      }
+      currentState = STATE_ESP_NOW_MENU;
+      menuSelection = 0;
+      showESPNowMenu();
       break;
       
     case STATE_ESP_NOW_PEER_OPTIONS:
@@ -3192,6 +3177,10 @@ void handleUp() {
         showESPNowPeers();
       }
       break;
+    case STATE_ESP_NOW_PEER_OPTIONS:
+      menuSelection = (menuSelection - 1 + 3) % 3;
+      showESPNowPeerOptions();
+      break;
     case STATE_WIFI_SCAN:
       if (networkCount > 0) {
         selectedNetwork = (selectedNetwork - 1 + networkCount) % networkCount;
@@ -3264,6 +3253,10 @@ void handleDown() {
         menuSelection = (menuSelection + 1) % totalItems;
         showESPNowPeers();
       }
+      break;
+    case STATE_ESP_NOW_PEER_OPTIONS:
+      menuSelection = (menuSelection + 1) % 3;
+      showESPNowPeerOptions();
       break;
     case STATE_WIFI_SCAN:
       if (networkCount > 0) {
