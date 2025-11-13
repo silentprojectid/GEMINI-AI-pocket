@@ -194,6 +194,13 @@ enum AppState {
 AppState currentState = STATE_MAIN_MENU;
 AppState previousState = STATE_MAIN_MENU;
 
+// NEW: Main Menu Animation Variables
+float menuScrollY = 0;
+float menuTargetScrollY = 0;
+int mainMenuSelection = 0; // To persist menu selection
+float menuTextScrollX = 0;
+unsigned long lastMenuTextScrollTime = 0;
+
 int cursorX = 0, cursorY = 0;
 String userInput = "";
 String passwordInput = "";
@@ -567,6 +574,26 @@ void loop() {
       lastLoadingUpdate = currentMillis;
       loadingFrame = (loadingFrame + 1) % 8;
       showLoadingAnimation();
+    }
+  }
+
+  // NEW: Main Menu Animation Logic
+  if (currentState == STATE_MAIN_MENU) {
+    // Smooth scrolling interpolation
+    if (abs(menuScrollY - menuTargetScrollY) > 0.1) {
+      menuScrollY += (menuTargetScrollY - menuScrollY) * 0.3;
+      refreshCurrentScreen();
+    } else if (menuScrollY != menuTargetScrollY) {
+      menuScrollY = menuTargetScrollY;
+      refreshCurrentScreen();
+    }
+
+    // Update the logical selection based on the closest item to the scroll position
+    int newSelection = round(menuScrollY / 22.0);
+    if (menuSelection != newSelection) {
+        menuSelection = newSelection;
+        menuTextScrollX = 0; // Reset text scroll when selection changes
+        lastMenuTextScrollTime = millis();
     }
   }
   
@@ -1400,7 +1427,8 @@ void handleSettingsMenuSelect() {
       break;
     case 5: // Back
       currentState = STATE_MAIN_MENU;
-      menuSelection = 0;
+      menuSelection = mainMenuSelection;
+      menuTargetScrollY = mainMenuSelection * 22;
       showMainMenu();
       break;
   }
@@ -1484,8 +1512,6 @@ void showMainMenu() {
     drawWiFiSignalBars();
   }
   
-  display.setTextSize(1);
-  
   struct MenuItem {
     const char* text;
     const unsigned char* icon;
@@ -1501,28 +1527,54 @@ void showMainMenu() {
     {"Settings", ICON_SETTINGS}
   };
   
-  int startY = 10;
-  int visibleItems = 5;
-  int startIdx = max(0, menuSelection - 2);
-  int endIdx = min(7, startIdx + visibleItems);
+  int numItems = sizeof(menuItems) / sizeof(MenuItem);
+  int screenCenterY = SCREEN_HEIGHT / 2;
   
-  for (int i = startIdx; i < endIdx; i++) {
-    int y = startY + (i - startIdx) * 10;
+  for (int i = 0; i < numItems; i++) {
+    float itemY = screenCenterY + (i * 22) - menuScrollY;
+    float distance = abs(itemY - screenCenterY);
     
-    // Draw icon
-    drawIcon(2, y, menuItems[i].icon);
-    
-    display.setCursor(14, y + 1);
-    if (i == menuSelection) {
-      display.print("> ");
-    } else {
-      display.print("  ");
-    }
-    display.print(menuItems[i].text);
-    
-    // Selection indicator
-    if (i == menuSelection && (millis() / 200) % 2 == 0) {
-      display.fillRect(SCREEN_WIDTH - 6, y, 4, 8, SSD1306_WHITE);
+    // Only draw items that are visible on screen
+    if (itemY > -20 && itemY < SCREEN_HEIGHT + 20) {
+      if (i == menuSelection) {
+        // --- SELECTED ITEM ---
+        display.drawRoundRect(2, screenCenterY - 11, SCREEN_WIDTH - 4, 22, 5, SSD1306_WHITE);
+        drawIcon(8, screenCenterY - 4, menuItems[i].icon);
+
+        display.setTextSize(2);
+
+        // Marquee effect for long text
+        int16_t x1, y1;
+        uint16_t w, h;
+        display.getTextBounds(menuItems[i].text, 0, 0, &x1, &y1, &w, &h);
+
+        if (w > SCREEN_WIDTH - 30) {
+            if(millis() - lastMenuTextScrollTime > 30) {
+                menuTextScrollX--;
+                if(menuTextScrollX < -(w + 10)) {
+                    menuTextScrollX = 0;
+                }
+                lastMenuTextScrollTime = millis();
+            }
+            display.setCursor(22 + menuTextScrollX, screenCenterY - 6);
+            display.print(menuItems[i].text);
+            display.setCursor(22 + menuTextScrollX + w + 10, screenCenterY - 6);
+            display.print(menuItems[i].text);
+        } else {
+            display.setCursor(22, screenCenterY - 6);
+            display.print(menuItems[i].text);
+        }
+
+      } else {
+        // --- UNSELECTED ITEMS ---
+        display.setTextSize(1);
+        int textX = 22 + (distance / 2);
+        if (textX > SCREEN_WIDTH / 2) textX = SCREEN_WIDTH / 2;
+
+        display.setCursor(textX, itemY - 3);
+        display.print(menuItems[i].text);
+        drawIcon(textX - 14, itemY - 4, menuItems[i].icon);
+      }
     }
   }
   
@@ -1530,6 +1582,7 @@ void showMainMenu() {
 }
 
 void handleMainMenuSelect() {
+  mainMenuSelection = menuSelection; // Persist the selection
   switch(menuSelection) {
     case 0: // Chat AI
       if (WiFi.status() == WL_CONNECTED) {
@@ -1600,7 +1653,8 @@ void handleBackButton() {
     case STATE_BATTERY_GUARDIAN:
     case STATE_ESP_NOW_MENU:
       currentState = STATE_MAIN_MENU;
-      menuSelection = 0;
+      menuSelection = mainMenuSelection;
+      menuTargetScrollY = mainMenuSelection * 22;
       showMainMenu();
       break;
       
@@ -1712,7 +1766,8 @@ void handlePowerBaseSelect() {
       break;
     case 4:
       currentState = STATE_MAIN_MENU;
-      menuSelection = 0;
+      menuSelection = mainMenuSelection;
+      menuTargetScrollY = mainMenuSelection * 22;
       showMainMenu();
       break;
   }
@@ -1913,7 +1968,8 @@ void handleWiFiMenuSelect() {
       break;
     case 2:
       currentState = STATE_MAIN_MENU;
-      menuSelection = 0;
+      menuSelection = mainMenuSelection;
+      menuTargetScrollY = mainMenuSelection * 22;
       showMainMenu();
       break;
   }
@@ -2822,8 +2878,8 @@ void drawWiFiSignalBars() {
 void handleUp() {
   switch(currentState) {
     case STATE_MAIN_MENU:
-      menuSelection = (menuSelection - 1 + 7) % 7;
-      showMainMenu();
+      mainMenuSelection = (mainMenuSelection - 1 + 7) % 7;
+      menuTargetScrollY = mainMenuSelection * 22;
       break;
     case STATE_WIFI_MENU:
       menuSelection = (menuSelection - 1 + 3) % 3;
@@ -2887,8 +2943,8 @@ void handleUp() {
 void handleDown() {
   switch(currentState) {
     case STATE_MAIN_MENU:
-      menuSelection = (menuSelection + 1) % 7;
-      showMainMenu();
+      mainMenuSelection = (mainMenuSelection + 1) % 7;
+      menuTargetScrollY = mainMenuSelection * 22;
       break;
     case STATE_WIFI_MENU:
       menuSelection = (menuSelection + 1) % 3;
@@ -3137,6 +3193,8 @@ void handleSelect() {
       userInput = "";
       aiResponse = "";
       scrollOffset = 0;
+      menuSelection = mainMenuSelection;
+      menuTargetScrollY = mainMenuSelection * 22;
       showMainMenu();
       break;
   }
