@@ -1428,6 +1428,7 @@ void connectToWiFi(String ssid, String password) {
     
     lastWiFiActivity = millis();
     
+    menuSelection = mainMenuSelection;
     menuTargetScrollY = mainMenuSelection * 22;
     changeState(STATE_MAIN_MENU, TRANS_SLIDE_RIGHT);
   } else {
@@ -1444,7 +1445,7 @@ void forgetNetwork() {
   preferences.end();
   WiFi.disconnect();
   showStatus("Network forgotten!", 2000);
-  showWiFiMenu();
+  showWiFiMenu(0);
 }
 
 void checkWiFiTimeout() {
@@ -2745,6 +2746,7 @@ void handleSelect() {
       handlePasswordKeyPress();
       break;
     case STATE_CHAT_RESPONSE:
+      menuSelection = mainMenuSelection;
       menuTargetScrollY = mainMenuSelection * 22;
       userInput = "";
       aiResponse = "";
@@ -2752,6 +2754,7 @@ void handleSelect() {
       changeState(STATE_MAIN_MENU, TRANS_SLIDE_RIGHT);
       break;
     case STATE_ABOUT:
+      menuSelection = mainMenuSelection;
       menuTargetScrollY = mainMenuSelection * 22;
       scrollOffset = 0;
       changeState(STATE_MAIN_MENU, TRANS_SLIDE_RIGHT);
@@ -2869,18 +2872,17 @@ void showESPNowInbox() {
   display.display();
 }
 
-void showESPNowPeers() {
-  display.clearDisplay();
-  drawBatteryIndicator();
-  drawBreadcrumb();
+void showESPNowPeers(int x_offset) {
+  drawBatteryIndicator(x_offset);
+  drawBreadcrumb(x_offset);
   
   display.setTextSize(1);
-  display.setCursor(20, 2);
+  display.setCursor(20 + x_offset, 2);
   display.print("MANAGE PEERS");
   
-  display.drawLine(0, 12, SCREEN_WIDTH, 12, SSD1306_WHITE);
+  display.drawLine(0 + x_offset, 12, SCREEN_WIDTH + x_offset, 12, SSD1306_WHITE);
   
-  display.setCursor(5, 15);
+  display.setCursor(5 + x_offset, 15);
   display.print("Peers: ");
   display.print(peerCount);
   display.print("/");
@@ -2894,7 +2896,7 @@ void showESPNowPeers() {
   };
   
   for (int i = 0; i < 4; i++) {
-    display.setCursor(5, 27 + i * 10);
+    display.setCursor(5 + x_offset, 27 + i * 10);
     if (i == menuSelection) {
       display.print("> ");
     } else {
@@ -2902,8 +2904,6 @@ void showESPNowPeers() {
     }
     display.print(menuItems[i]);
   }
-  
-  display.display();
 }
 
 void showESPNowAddPeer() {
@@ -3165,9 +3165,7 @@ void exitZenMode() {
   showSettingsMenu();
 }
 
-void showZenMode() {
-  display.clearDisplay();
-  
+void showZenMode(int x_offset) {
   unsigned long zenDuration = (millis() - zenModeStartTime) / 1000;
   int zenMinutes = zenDuration / 60;
   int zenSeconds = zenDuration % 60;
@@ -3181,7 +3179,7 @@ void showZenMode() {
   timeStr += String(zenSeconds);
   
   int textW = timeStr.length() * 12;
-  display.setCursor((SCREEN_WIDTH - textW) / 2, 15);
+  display.setCursor((SCREEN_WIDTH - textW) / 2 + x_offset, 15);
   display.print(timeStr);
   
   display.setTextSize(1);
@@ -3389,18 +3387,17 @@ void showSystemInfo() {
 
 // ========== SETTINGS MENU ==========
 
-void showSettingsMenu() {
-  display.clearDisplay();
-  drawBatteryIndicator();
-  drawBreadcrumb();
+void showSettingsMenu(int x_offset) {
+  drawBatteryIndicator(x_offset);
+  drawBreadcrumb(x_offset);
   
   display.setTextSize(1);
-  display.setCursor(25, 2);
+  display.setCursor(25 + x_offset, 2);
   display.print("SETTINGS");
   
-  drawIcon(10, 2, ICON_SETTINGS);
+  drawIcon(10, 2, ICON_SETTINGS, x_offset);
   
-  display.drawLine(0, 12, SCREEN_WIDTH, 12, SSD1306_WHITE);
+  display.drawLine(0 + x_offset, 12, SCREEN_WIDTH + x_offset, 12, SSD1306_WHITE);
   
   const char* menuItems[] = {
     "WiFi Auto-Off",
@@ -3417,7 +3414,7 @@ void showSettingsMenu() {
   
   for (int i = startIdx; i < endIdx; i++) {
     int y = 15 + (i - startIdx) * 10;
-    display.setCursor(5, y);
+    display.setCursor(5 + x_offset, y);
     
     if (i == settingsMenuSelection) {
       display.print("> ");
@@ -3802,6 +3799,7 @@ void handleBackButton() {
     case STATE_BATTERY_GUARDIAN:
     case STATE_ESP_NOW_MENU:
     case STATE_ABOUT:
+      menuSelection = mainMenuSelection;
       menuTargetScrollY = mainMenuSelection * 22;
       changeState(STATE_MAIN_MENU, backTransition);
       break;
@@ -3851,6 +3849,7 @@ void handleBackButton() {
       
     case STATE_API_SELECT:
     case STATE_CHAT_RESPONSE:
+      menuSelection = mainMenuSelection;
       menuTargetScrollY = mainMenuSelection * 22;
       userInput = "";
       aiResponse = "";
@@ -3858,6 +3857,7 @@ void handleBackButton() {
       break;
       
     default:
+      menuSelection = mainMenuSelection;
       menuTargetScrollY = mainMenuSelection * 22;
       changeState(STATE_MAIN_MENU, backTransition);
       break;
