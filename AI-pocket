@@ -1973,7 +1973,7 @@ void handlePasswordKeyPress() {
 
 // ========== LOADING & STATUS ==========
 
-void showLoadingAnimation(int x_offset = 0) {
+void showLoadingAnimation(int x_offset) {
   display.clearDisplay();
   drawBatteryIndicator(x_offset);
   
@@ -3458,7 +3458,7 @@ void handleSettingsMenuSelect() {
       } else {
         showStatus("WiFi Auto-Off\nDISABLED", 1500);
       }
-      showSettingsMenu();
+      showSettingsMenu(0);
       break;
     case 1:
       menuSelection = 0;
@@ -3478,7 +3478,7 @@ void handleSettingsMenuSelect() {
         changeState(STATE_DEVELOPER_MODE, TRANS_SLIDE_LEFT);
       } else {
         showStatus("Developer Mode\nDISABLED", 1500);
-        showSettingsMenu();
+        showSettingsMenu(0);
       }
       break;
     case 4:
