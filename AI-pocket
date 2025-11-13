@@ -29,6 +29,15 @@ Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 // LED Built-in
 #define LED_BUILTIN 8
 
+// Menu animation
+float menuTargetSelection = 0;
+float menuCurrentPosition = 0;
+
+// Screen transition
+bool isTransitioning = false;
+unsigned long transitionStartTime = 0;
+const int transitionDuration = 250; // ms
+
 // Battery monitoring
 #define BATTERY_PIN 0
 #define CHARGING_PIN 1
@@ -239,6 +248,10 @@ const unsigned char ICON_DEV[] PROGMEM = {
   0x08, 0x14, 0x22, 0x41, 0x41, 0x22, 0x14, 0x08
 };
 
+const unsigned char ICON_ROCKET[] PROGMEM = {
+  0x18, 0x3C, 0x7E, 0xFF, 0x18, 0x18, 0x18, 0x00
+};
+
 // Forward declarations
 void showMainMenu();
 void showWiFiMenu();
@@ -304,6 +317,51 @@ void sendESPNowMessage(String message, uint8_t* targetMac);
 void addPeer(uint8_t* macAddr);
 
 // LED Patterns
+// Helper function for smooth animation curves
+float easeInOutCubic(float t) {
+  return t < 0.5 ? 4 * t * t * t : 1 - pow(-2 * t + 2, 3) / 2;
+}
+
+// Draw a PROGMEM bitmap with scaling and alpha blending (dithering)
+void drawBitmap(int x, int y, const unsigned char *bitmap, int w, int h, float scale, float alpha) {
+  int newW = w * scale;
+  int newH = h * scale;
+
+  for (int j = 0; j < newH; j++) {
+    for (int i = 0; i < newW; i++) {
+      int origX = i / scale;
+      int origY = j / scale;
+
+      // Dithering for pseudo-alpha
+      bool pixelOn = (pgm_read_byte(&bitmap[origY * (w / 8) + (origX / 8)]) >> (7 - (origX % 8))) & 1;
+      if (pixelOn) {
+        float dither = fmod(i + j * 0.5, 1.0 / alpha);
+        if (dither < 1.0) {
+           display.drawPixel(x + i - newW / 2, y + j - newH / 2, SSD1306_WHITE);
+        }
+      }
+    }
+  }
+}
+
+void startTransition() {
+  isTransitioning = true;
+  transitionStartTime = millis();
+}
+
+void handleTransition() {
+  if (isTransitioning) {
+    unsigned long elapsed = millis() - transitionStartTime;
+    if (elapsed < transitionDuration) {
+      // Fade out
+      display.clearDisplay();
+      display.display();
+    } else {
+      isTransitioning = false;
+    }
+  }
+}
+
 void ledHeartbeat() {
   int beat = (millis() / 100) % 20;
   digitalWrite(LED_BUILTIN, (beat < 2 || beat == 4));
@@ -570,6 +628,15 @@ void loop() {
     }
   }
   
+  // Button handling
+  // Animate menu if in main menu state
+  if (currentState == STATE_MAIN_MENU) {
+    showMainMenu();
+  }
+
+  // Handle screen transitions
+  handleTransition();
+
   // Button handling
   if (currentMillis - lastDebounce > debounceDelay) {
     bool buttonPressed = false;
@@ -1484,8 +1551,9 @@ void showMainMenu() {
     drawWiFiSignalBars();
   }
   
-  display.setTextSize(1);
-  
+  // Update menu animation
+  menuCurrentPosition += (menuTargetSelection - menuCurrentPosition) * 0.1;
+
   struct MenuItem {
     const char* text;
     const unsigned char* icon;
@@ -1500,32 +1568,26 @@ void showMainMenu() {
     {"ESP-NOW", ICON_MESSAGE},
     {"Settings", ICON_SETTINGS}
   };
-  
-  int startY = 10;
-  int visibleItems = 5;
-  int startIdx = max(0, menuSelection - 2);
-  int endIdx = min(7, startIdx + visibleItems);
-  
-  for (int i = startIdx; i < endIdx; i++) {
-    int y = startY + (i - startIdx) * 10;
-    
-    // Draw icon
-    drawIcon(2, y, menuItems[i].icon);
-    
-    display.setCursor(14, y + 1);
-    if (i == menuSelection) {
-      display.print("> ");
-    } else {
-      display.print("  ");
-    }
-    display.print(menuItems[i].text);
-    
-    // Selection indicator
-    if (i == menuSelection && (millis() / 200) % 2 == 0) {
-      display.fillRect(SCREEN_WIDTH - 6, y, 4, 8, SSD1306_WHITE);
-    }
+  int numItems = sizeof(menuItems) / sizeof(MenuItem);
+
+  for (int i = 0; i < numItems; i++) {
+    float itemPos = i - menuCurrentPosition;
+    float scale = max(0.0, 1.0 - abs(itemPos) * 0.4);
+    float alpha = max(0.0, 1.0 - abs(itemPos) * 0.5);
+    int x = SCREEN_WIDTH / 2 + itemPos * 30;
+    int y = 30;
+
+    // Draw icon with scaling and alpha
+    drawBitmap(x, y, menuItems[i].icon, 8, 8, 2.5 * scale, alpha);
   }
-  
+
+  // Display the name of the selected item
+  int selectedIdx = round(menuCurrentPosition);
+  display.setTextSize(2);
+  int textWidth = String(menuItems[selectedIdx].text).length() * 12;
+  display.setCursor((SCREEN_WIDTH - textWidth) / 2, 50);
+  display.print(menuItems[selectedIdx].text);
+
   display.display();
 }
 
@@ -1587,6 +1649,7 @@ void handleMainMenuSelect() {
 
 void handleBackButton() {
   ledQuickFlash();
+  startTransition();
   
   switch(currentState) {
     case STATE_MAIN_MENU:
@@ -2548,7 +2611,7 @@ void showLoadingAnimation() {
   
   display.setTextSize(1);
   display.setCursor(20, 10);
-  display.print("Loading AI");
+  display.print("Launching AI");
   
   int dots = (loadingFrame % 4);
   for (int i = 0; i < dots; i++) {
@@ -2557,15 +2620,18 @@ void showLoadingAnimation() {
   
   int centerX = SCREEN_WIDTH / 2;
   int centerY = 35;
-  int radius = 12;
   
-  display.drawCircle(centerX, centerY, radius, SSD1306_WHITE);
-  
-  float angle = loadingFrame * PI / 4;
-  int x2 = centerX + cos(angle) * radius;
-  int y2 = centerY + sin(angle) * radius;
-  
-  display.drawLine(centerX, centerY, x2, y2, SSD1306_WHITE);
+  // Draw rocket
+  float rocketY = centerY - 10 + 5 * sin(millis() / 200.0);
+  drawBitmap(centerX, rocketY, ICON_ROCKET, 8, 8, 2.0, 1.0);
+
+  // Expanding circles
+  for (int i = 0; i < 3; i++) {
+    float t = fmod(millis() / 1000.0 + i * 0.33, 1.0);
+    float radius = easeInOutCubic(t) * 20;
+    float alpha = 1.0 - t;
+    display.drawCircle(centerX, centerY + 10, radius, SSD1306_WHITE);
+  }
   
   display.display();
 }
@@ -2586,7 +2652,13 @@ void showProgressBar(String title, int percent) {
   display.drawRect(barX, barY, barW, barH, SSD1306_WHITE);
   
   int fillW = map(percent, 0, 100, 0, barW - 4);
-  display.fillRect(barX + 2, barY + 2, fillW, barH - 4, SSD1306_WHITE);
+
+  // Animated fill
+  for (int i = 0; i < fillW; i++) {
+    float wave = 0.5 * (1 + sin(i * 0.5 + millis() / 100.0));
+    int waveHeight = 2 + wave * (barH - 8);
+    display.drawPixel(barX + 2 + i, barY + (barH / 2) + waveHeight, SSD1306_WHITE);
+  }
   
   display.setCursor(55, 47);
   display.print(percent);
@@ -2821,10 +2893,6 @@ void drawWiFiSignalBars() {
 
 void handleUp() {
   switch(currentState) {
-    case STATE_MAIN_MENU:
-      menuSelection = (menuSelection - 1 + 7) % 7;
-      showMainMenu();
-      break;
     case STATE_WIFI_MENU:
       menuSelection = (menuSelection - 1 + 3) % 3;
       showWiFiMenu();
@@ -2886,10 +2954,6 @@ void handleUp() {
 
 void handleDown() {
   switch(currentState) {
-    case STATE_MAIN_MENU:
-      menuSelection = (menuSelection + 1) % 7;
-      showMainMenu();
-      break;
     case STATE_WIFI_MENU:
       menuSelection = (menuSelection + 1) % 3;
       showWiFiMenu();
@@ -2951,6 +3015,9 @@ void handleDown() {
 
 void handleLeft() {
   switch(currentState) {
+    case STATE_MAIN_MENU:
+      menuTargetSelection = max(0, menuTargetSelection - 1);
+      break;
     case STATE_KEYBOARD:
     case STATE_PASSWORD_INPUT:
       cursorX = (cursorX - 1 + 10) % 10;
@@ -2976,6 +3043,9 @@ void handleLeft() {
 
 void handleRight() {
   switch(currentState) {
+    case STATE_MAIN_MENU:
+      menuTargetSelection = min(7, menuTargetSelection + 1);
+      break;
     case STATE_KEYBOARD:
     case STATE_PASSWORD_INPUT:
       cursorX = (cursorX + 1) % 10;
@@ -3000,8 +3070,10 @@ void handleRight() {
 }
 
 void handleSelect() {
+  startTransition();
   switch(currentState) {
     case STATE_MAIN_MENU:
+      menuSelection = round(menuCurrentPosition);
       handleMainMenuSelect();
       break;
     case STATE_WIFI_MENU:
