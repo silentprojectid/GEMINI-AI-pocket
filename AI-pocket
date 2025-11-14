@@ -3190,6 +3190,7 @@ void handleUp() {
       break;
     case STATE_KEYBOARD:
     case STATE_PASSWORD_INPUT:
+    case STATE_ESP_NOW_ADD_PEER:
       cursorY = (cursorY - 1 + 3) % 3;
       drawKeyboard();
       break;
@@ -3267,6 +3268,7 @@ void handleDown() {
       break;
     case STATE_KEYBOARD:
     case STATE_PASSWORD_INPUT:
+    case STATE_ESP_NOW_ADD_PEER:
       cursorY = (cursorY + 1) % 3;
       drawKeyboard();
       break;
@@ -3285,6 +3287,7 @@ void handleLeft() {
   switch(currentState) {
     case STATE_KEYBOARD:
     case STATE_PASSWORD_INPUT:
+    case STATE_ESP_NOW_ADD_PEER:
       cursorX = (cursorX - 1 + 10) % 10;
       drawKeyboard();
       break;
@@ -3310,6 +3313,7 @@ void handleRight() {
   switch(currentState) {
     case STATE_KEYBOARD:
     case STATE_PASSWORD_INPUT:
+    case STATE_ESP_NOW_ADD_PEER:
       cursorX = (cursorX + 1) % 10;
       drawKeyboard();
       break;
