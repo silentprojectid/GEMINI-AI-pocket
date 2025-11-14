@@ -489,8 +489,6 @@ void setup() {
   Serial.println("\n=== ESP32-C3 Ultra Edition v4.1 (Bug Fixed) ===");
   Serial.println("Advanced Features Enabled");
   
-  preferences.begin("wifi-creds", false);
-  preferences.begin("settings", false);
   Wire.begin(SDA_PIN, SCL_PIN);
   
   pinMode(BTN_UP, INPUT_PULLUP);
@@ -521,10 +519,12 @@ void setup() {
   }
   
   // Load settings
+  preferences.begin("settings", true);
   wifiAutoOffEnabled = preferences.getBool("wifiAutoOff", false);
   fontSize = preferences.getInt("fontSize", 1);
   animSpeed = preferences.getInt("animSpeed", 100);
   devModeEnabled = preferences.getBool("devMode", false);
+  preferences.end();
   
   if(!display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS)) {
     Serial.println(F("SSD1306 allocation failed"));
@@ -543,8 +543,10 @@ void setup() {
   loadPeers();
   
   // Auto-connect WiFi
+  preferences.begin("wifi-creds", true);
   String savedSSID = preferences.getString("ssid", "");
   String savedPassword = preferences.getString("password", "");
+  preferences.end();
   
   if (savedSSID.length() > 0) {
     showProgressBar("WiFi Connect", 0);
@@ -1648,6 +1650,7 @@ void showSettingsMenu() {
 }
 
 void handleSettingsMenuSelect() {
+  preferences.begin("settings", false);
   switch(settingsMenuSelection) {
     case 0:
       wifiAutoOffEnabled = !wifiAutoOffEnabled;
@@ -1695,6 +1698,7 @@ void handleSettingsMenuSelect() {
       showMainMenu();
       break;
   }
+  preferences.end();
 }
 
 // ========== BREADCRUMB & ICONS ==========
@@ -2770,8 +2774,10 @@ void connectToWiFi(String ssid, String password) {
   }
   
   if (WiFi.status() == WL_CONNECTED) {
+    preferences.begin("wifi-creds", false);
     preferences.putString("ssid", ssid);
     preferences.putString("password", password);
+    preferences.end();
     
     ledSuccess();
     showProgressBar("Connected!", 100);
@@ -2791,7 +2797,9 @@ void connectToWiFi(String ssid, String password) {
 }
 
 void forgetNetwork() {
+  preferences.begin("wifi-creds", false);
   preferences.clear();
+  preferences.end();
   WiFi.disconnect();
   showStatus("Network forgotten!", 2000);
   showWiFiMenu();
@@ -3389,6 +3397,7 @@ void handleLeft() {
       showCalculator();
       break;
     case STATE_DISPLAY_SETTINGS:
+      preferences.begin("settings", false);
       if (menuSelection == 0) {
         fontSize = max(1, fontSize - 1);
         preferences.putInt("fontSize", fontSize);
@@ -3398,6 +3407,7 @@ void handleLeft() {
         preferences.putInt("animSpeed", animSpeed);
         showDisplaySettings();
       }
+      preferences.end();
       break;
   }
 }
@@ -3414,6 +3424,7 @@ void handleRight() {
       showCalculator();
       break;
     case STATE_DISPLAY_SETTINGS:
+      preferences.begin("settings", false);
       if (menuSelection == 0) {
         fontSize = min(2, fontSize + 1);
         preferences.putInt("fontSize", fontSize);
@@ -3423,6 +3434,7 @@ void handleRight() {
         preferences.putInt("animSpeed", animSpeed);
         showDisplaySettings();
       }
+      preferences.end();
       break;
   }
 }
