@@ -3,6 +3,9 @@
 #include <Adafruit_SSD1306.h>
 #include <WiFi.h>
 #include <HTTPClient.h>
+#include <HTTPUpdate.h>
+#include <WiFiClientSecure.h>
+#include <Update.h>
 #include <ArduinoJson.h>
 #include <Preferences.h>
 #include <esp_now.h>
@@ -73,16 +76,6 @@ bool isCharging = false;
 unsigned long lastBatteryCheck = 0;
 const unsigned long batteryCheckInterval = 2000;
 
-// Battery Guardian
-#define BATTERY_HISTORY_SIZE 60
-int batteryHistory[BATTERY_HISTORY_SIZE];
-unsigned long batteryTimestamps[BATTERY_HISTORY_SIZE];
-int batteryHistoryIndex = 0;
-bool batteryHistoryFilled = false;
-float batteryDrainRate = 0;
-int estimatedMinutesLeft = -1;
-bool batteryLeakWarning = false;
-
 // Power consumption estimation
 float wifiPowerDraw = 0;
 float displayPowerDraw = 0;
@@ -136,6 +129,7 @@ int espnowInboxSelection = 0;     // For inbox navigation
 int espnowPeerOptionsSelection = 0; // For peer options menu
 
 String outgoingMessage = "";
+bool hasUnreadMessages = false;
 
 // Breadcrumb navigation
 String breadcrumb = "";
@@ -212,13 +206,13 @@ enum AppState {
   STATE_DISPLAY_SETTINGS,
   STATE_DEVELOPER_MODE,
   STATE_ZEN_MODE,
-  STATE_BATTERY_GUARDIAN,
   STATE_ESP_NOW_MENU,
   STATE_ESP_NOW_SEND,
   STATE_ESP_NOW_INBOX,
   STATE_ESP_NOW_PEERS,
   STATE_ESP_NOW_PEER_OPTIONS,
-  STATE_LOADING
+  STATE_LOADING,
+  STATE_OTA_UPDATE
 };
 
 AppState currentState = STATE_MAIN_MENU;
@@ -281,6 +275,15 @@ const unsigned char ICON_DEV[] PROGMEM = {
   0x08, 0x14, 0x22, 0x41, 0x41, 0x22, 0x14, 0x08
 };
 
+// New icons for charging and unread messages
+const unsigned char ICON_CHARGING_BOLT[] PROGMEM = {
+  0x00, 0x10, 0x30, 0x78, 0x30, 0x20, 0x00, 0x00
+};
+
+const unsigned char ICON_MESSAGE_UNREAD[] PROGMEM = {
+  0x7E, 0x81, 0x99, 0xA5, 0x81, 0x7E, 0x00, 0x00
+};
+
 // Forward declarations
 void showMainMenu();
 void showWiFiMenu();
@@ -296,12 +299,13 @@ void showSettingsMenu();
 void showDisplaySettings();
 void showDeveloperMode();
 void showZenMode();
-void showBatteryGuardian();
 void showESPNowMenu();
 void showESPNowSend();
 void showESPNowInbox();
 void showESPNowPeers();
 void showESPNowPeerOptions();
+void showOTAUpdate();
+void performOTAUpdate();
 void showLoadingAnimation();
 void showProgressBar(String title, int percent);
 void displayWiFiNetworks();
@@ -341,7 +345,13 @@ void enterZenMode();
 void exitZenMode();
 const char* getCurrentKey();
 void toggleKeyboardMode();
-void onESPNowDataReceived(const uint8_t * mac, const uint8_t *incomingData, int len);
+
+#if ESP_ARDUINO_VERSION_MAJOR >= 3
+void onESPNowDataReceived(const esp_now_recv_info *info, const uint8_t *incomingData, int len);
+#else
+void onESPNowDataReceived(const uint8_t *mac, const uint8_t *incomingData, int len);
+#endif
+
 void onESPNowDataSent(const uint8_t *mac, esp_now_send_status_t status);
 void initESPNow();
 void sendESPNowMessage(String message, uint8_t* targetMac);
@@ -502,8 +512,6 @@ void setup() {
   Serial.println("\n=== ESP32-C3 Ultra Edition v1.0 ===");
   Serial.println("Advanced Features Enabled");
   
-  preferences.begin("wifi-creds", false);
-  preferences.begin("settings", false);
   Wire.begin(SDA_PIN, SCL_PIN);
   
   pinMode(BTN_UP, INPUT_PULLUP);
@@ -527,17 +535,13 @@ void setup() {
     delay(100);
   }
   
-  // Initialize battery history
-  for (int i = 0; i < BATTERY_HISTORY_SIZE; i++) {
-    batteryHistory[i] = batteryPercent;
-    batteryTimestamps[i] = millis();
-  }
-  
   // Load settings
+  preferences.begin("settings", true); // Open settings in read-only mode
   wifiAutoOffEnabled = preferences.getBool("wifiAutoOff", false);
   fontSize = preferences.getInt("fontSize", 1);
   animSpeed = preferences.getInt("animSpeed", 100);
   devModeEnabled = preferences.getBool("devMode", false);
+  preferences.end();
   
   if(!display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS)) {
     Serial.println(F("SSD1306 allocation failed"));
@@ -556,8 +560,10 @@ void setup() {
   loadPeers();
   
   // Auto-connect WiFi
+  preferences.begin("wifi-creds", true);
   String savedSSID = preferences.getString("ssid", "");
   String savedPassword = preferences.getString("password", "");
+  preferences.end();
   
   if (savedSSID.length() > 0) {
     showProgressBar("WiFi Connect", 0);
@@ -616,8 +622,6 @@ void loop() {
   // Battery monitoring
   if (currentMillis - lastBatteryCheck > batteryCheckInterval) {
     updateBatteryLevel();
-    updateBatteryHistory();
-    checkBatteryHealth();
     updatePowerConsumption();
     lastBatteryCheck = currentMillis;
     
@@ -676,13 +680,6 @@ void loop() {
         {
           int rainbow = (millis() / 100) % 30;
           digitalWrite(LED_BUILTIN, rainbow < 10 || (rainbow > 14 && rainbow < 20));
-        }
-        break;
-      case STATE_BATTERY_GUARDIAN:
-        if (batteryLeakWarning) {
-          ledBlink(150);
-        } else {
-          ledBreathing();
         }
         break;
       case STATE_ESP_NOW_MENU:
@@ -819,7 +816,12 @@ void initESPNow() {
                 mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
 }
 
-void onESPNowDataReceived(const uint8_t * mac, const uint8_t *incomingData, int len) {
+#if ESP_ARDUINO_VERSION_MAJOR >= 3
+void onESPNowDataReceived(const esp_now_recv_info *info, const uint8_t *incomingData, int len) {
+  const uint8_t* mac = info->src_addr;
+#else
+void onESPNowDataReceived(const uint8_t *mac, const uint8_t *incomingData, int len) {
+#endif
   if (inboxCount >= MAX_MESSAGES) {
     for (int i = 0; i < MAX_MESSAGES - 1; i++) {
       inbox[i] = inbox[i + 1];
@@ -835,6 +837,7 @@ void onESPNowDataReceived(const uint8_t * mac, const uint8_t *incomingData, int 
   newMsg.read = false;
   
   inbox[inboxCount++] = newMsg;
+  hasUnreadMessages = true;
   
   ledQuickFlash();
   Serial.println("Message received!");
@@ -1218,114 +1221,6 @@ void showESPNowPeers() {
   display.display();
 }
 
-// ========== BATTERY GUARDIAN ==========
-
-void updateBatteryHistory() {
-  batteryHistory[batteryHistoryIndex] = batteryPercent;
-  batteryTimestamps[batteryHistoryIndex] = millis();
-  
-  batteryHistoryIndex = (batteryHistoryIndex + 1) % BATTERY_HISTORY_SIZE;
-  if (batteryHistoryIndex == 0) batteryHistoryFilled = true;
-}
-
-void checkBatteryHealth() {
-  if (!batteryHistoryFilled && batteryHistoryIndex < 5) return;
-  
-  int dataPoints = batteryHistoryFilled ? BATTERY_HISTORY_SIZE : batteryHistoryIndex;
-  if (dataPoints < 5) return;
-  
-  int oldIdx = batteryHistoryFilled ? batteryHistoryIndex : 0;
-  int recentIdx = batteryHistoryFilled ? 
-                  (batteryHistoryIndex - 1 + BATTERY_HISTORY_SIZE) % BATTERY_HISTORY_SIZE :
-                  batteryHistoryIndex - 1;
-  
-  int batteryDiff = batteryHistory[oldIdx] - batteryHistory[recentIdx];
-  unsigned long timeDiff = (batteryTimestamps[recentIdx] - batteryTimestamps[oldIdx]) / 60000;
-  
-  if (timeDiff > 0) {
-    batteryDrainRate = (float)batteryDiff / timeDiff;
-    
-    if (batteryDrainRate > 2.0 && !isCharging) {
-      batteryLeakWarning = true;
-    } else {
-      batteryLeakWarning = false;
-    }
-    
-    if (batteryDrainRate > 0 && !isCharging) {
-      estimatedMinutesLeft = (int)(batteryPercent / batteryDrainRate);
-    } else if (isCharging && batteryDrainRate < 0) {
-      estimatedMinutesLeft = (int)((100 - batteryPercent) / abs(batteryDrainRate));
-    } else {
-      estimatedMinutesLeft = -1;
-    }
-  }
-}
-
-void showBatteryGuardian() {
-  display.clearDisplay();
-  drawBatteryIndicator();
-  drawBreadcrumb();
-  
-  display.setTextSize(1);
-  display.setCursor(5, 12);
-  display.print("BATTERY GUARDIAN");
-  
-  drawIcon(108, 12, ICON_POWER);
-  
-  display.drawLine(0, 22, SCREEN_WIDTH, 22, SSD1306_WHITE);
-  
-  display.setCursor(2, 26);
-  display.print("Level: ");
-  display.print(batteryPercent);
-  display.print("% (");
-  display.print(batteryVoltage, 2);
-  display.print("V)");
-  
-  display.setCursor(2, 36);
-  display.print("Drain: ");
-  if (isCharging) {
-    display.print("+");
-    display.print(abs(batteryDrainRate), 2);
-    display.print("%/min");
-  } else {
-    display.print(batteryDrainRate, 2);
-    display.print("%/min");
-  }
-  
-  display.setCursor(2, 46);
-  if (estimatedMinutesLeft > 0) {
-    if (isCharging) {
-      display.print("Full in: ");
-    } else {
-      display.print("Empty in: ");
-    }
-    
-    int hours = estimatedMinutesLeft / 60;
-    int mins = estimatedMinutesLeft % 60;
-    
-    if (hours > 0) {
-      display.print(hours);
-      display.print("h ");
-    }
-    display.print(mins);
-    display.print("m");
-  } else {
-    display.print("Time: Calculating...");
-  }
-  
-  if (batteryLeakWarning) {
-    if ((millis() / 500) % 2 == 0) {
-      display.fillRect(0, 56, SCREEN_WIDTH, 8, SSD1306_WHITE);
-      display.setTextColor(SSD1306_BLACK);
-      display.setCursor(15, 57);
-      display.print("BATTERY LEAK!");
-      display.setTextColor(SSD1306_WHITE);
-    }
-  }
-  
-  display.display();
-}
-
 // ========== POWER CONSUMPTION MONITOR ==========
 
 void updatePowerConsumption() {
@@ -1498,11 +1393,6 @@ void showDeveloperMode() {
   display.print(lastLoopCount);
   display.print("/s");
   
-  display.setCursor(2, 50);
-  display.print("Battery: ");
-  display.print(batteryDrainRate, 2);
-  display.print("%/m");
-  
   if (lowMemoryWarning && (millis() / 500) % 2 == 0) {
     display.fillRect(0, 58, SCREEN_WIDTH, 6, SSD1306_WHITE);
     display.setTextColor(SSD1306_BLACK);
@@ -1657,12 +1547,13 @@ void showSettingsMenu() {
     "System Info",
     "Developer Mode",
     "Zen Mode",
+    "OTA Update",
     "Back"
   };
   
   int visibleItems = 5;
   int startIdx = max(0, settingsMenuSelection - 2);
-  int endIdx = min(6, startIdx + visibleItems);
+  int endIdx = min(7, startIdx + visibleItems);
   
   for (int i = startIdx; i < endIdx; i++) {
     int y = 15 + (i - startIdx) * 10;
@@ -1691,7 +1582,9 @@ void handleSettingsMenuSelect() {
   switch(settingsMenuSelection) {
     case 0:
       wifiAutoOffEnabled = !wifiAutoOffEnabled;
+      preferences.begin("settings", false);
       preferences.putBool("wifiAutoOff", wifiAutoOffEnabled);
+      preferences.end();
       ledSuccess();
       if (wifiAutoOffEnabled) {
         lastWiFiActivity = millis();
@@ -1714,7 +1607,9 @@ void handleSettingsMenuSelect() {
       break;
     case 3:
       devModeEnabled = !devModeEnabled;
+      preferences.begin("settings", false);
       preferences.putBool("devMode", devModeEnabled);
+      preferences.end();
       ledSuccess();
       if (devModeEnabled) {
         showStatus("Developer Mode\nENABLED", 1500);
@@ -1728,13 +1623,101 @@ void handleSettingsMenuSelect() {
     case 4:
       enterZenMode();
       break;
-    case 5:
+    case 5: // OTA Update
+      previousState = currentState;
+      currentState = STATE_OTA_UPDATE;
+      showOTAUpdate();
+      break;
+    case 6:
       currentState = STATE_MAIN_MENU;
       menuSelection = mainMenuSelection;
       menuTargetScrollY = mainMenuSelection * 22;
       showMainMenu();
       break;
+    case STATE_OTA_UPDATE:
+      performOTAUpdate();
+      break;
   }
+}
+
+// ========== OTA UPDATE FUNCTIONS ==========
+
+void showOTAUpdate() {
+  display.clearDisplay();
+  drawBatteryIndicator();
+  drawBreadcrumb();
+
+  display.setTextSize(1);
+  display.setCursor(10, 2);
+  display.print("OTA UPDATE");
+
+  display.drawLine(0, 12, SCREEN_WIDTH, 12, SSD1306_WHITE);
+
+  display.setCursor(5, 15);
+  display.print("Press SELECT to");
+  display.setCursor(5, 25);
+  display.print("check for updates.");
+
+  display.display();
+}
+
+void performOTAUpdate() {
+  if (WiFi.status() != WL_CONNECTED) {
+    showStatus("WiFi not connected!", 2000);
+    return;
+  }
+
+  showStatus("Checking GitHub...", 1500);
+
+  HTTPClient http;
+  WiFiClientSecure client;
+  client.setInsecure(); // Allow connection to GitHub without root CA
+
+  String url = "https://api.github.com/repos/sanzxprojectid/AI-pocket/releases/latest";
+
+  if (http.begin(client, url)) {
+    int httpCode = http.GET();
+
+    if (httpCode == HTTP_CODE_OK) {
+      String payload = http.getString();
+      JsonDocument doc;
+      deserializeJson(doc, payload);
+
+      String assetUrl = doc["assets"][0]["browser_download_url"];
+
+      if (assetUrl.endsWith(".bin")) {
+        showStatus("Update found!\nStarting...", 2000);
+
+        http.end(); // End the first connection before starting the update
+
+        t_httpUpdate_return ret = httpUpdate.update(client, assetUrl);
+
+        switch (ret) {
+          case HTTP_UPDATE_FAILED:
+            showStatus("Update failed!\nError: " + String(httpUpdate.getLastErrorString().c_str()), 5000);
+            break;
+          case HTTP_UPDATE_NO_UPDATES:
+            showStatus("No new updates.", 3000);
+            break;
+          case HTTP_UPDATE_OK:
+            showStatus("Update complete!\nRebooting...", 3000);
+            ESP.restart();
+            break;
+        }
+      } else {
+        showStatus("No firmware file\nfound in release.", 3000);
+      }
+    } else {
+      showStatus("GitHub API error\nCode: " + String(httpCode), 3000);
+    }
+    http.end();
+  } else {
+    showStatus("Failed to connect\nto GitHub API.", 3000);
+  }
+
+  // Return to settings menu
+  currentState = STATE_SETTINGS_MENU;
+  showSettingsMenu();
 }
 
 // ========== BREADCRUMB & ICONS ==========
@@ -1767,9 +1750,6 @@ void drawBreadcrumb() {
     case STATE_ZEN_MODE:
     case STATE_SYSTEM_INFO:
       crumb = "Main > Settings";
-      break;
-    case STATE_BATTERY_GUARDIAN:
-      crumb = "Main > Battery";
       break;
     case STATE_ESP_NOW_MENU:
     case STATE_ESP_NOW_SEND:
@@ -1819,7 +1799,6 @@ void showMainMenu() {
     {"WiFi", ICON_WIFI},
     {"Calculator", ICON_CALC},
     {"Power", ICON_POWER},
-    {"Battery Guard", ICON_POWER},
     {"ESP-NOW", ICON_MESSAGE},
     {"Settings", ICON_SETTINGS}
   };
@@ -1911,18 +1890,13 @@ void handleMainMenuSelect() {
       currentState = STATE_POWER_BASE;
       showPowerBase();
       break;
-    case 4: // Battery Guardian
-      previousState = currentState;
-      currentState = STATE_BATTERY_GUARDIAN;
-      showBatteryGuardian();
-      break;
-    case 5: // ESP-NOW
+    case 4: // ESP-NOW
       espnowMenuSelection = 0;
       previousState = currentState;
       currentState = STATE_ESP_NOW_MENU;
       showESPNowMenu();
       break;
-    case 6: // Settings
+    case 5: // Settings
       settingsMenuSelection = 0;
       previousState = currentState;
       currentState = STATE_SETTINGS_MENU;
@@ -1944,7 +1918,6 @@ void handleBackButton() {
     case STATE_CALCULATOR:
     case STATE_POWER_BASE:
     case STATE_SETTINGS_MENU:
-    case STATE_BATTERY_GUARDIAN:
       currentState = STATE_MAIN_MENU;
       menuSelection = mainMenuSelection;
       menuTargetScrollY = mainMenuSelection * 22;
@@ -2097,6 +2070,9 @@ void handlePowerBaseSelect() {
       menuTargetScrollY = mainMenuSelection * 22;
       showMainMenu();
       break;
+    case STATE_OTA_UPDATE:
+      performOTAUpdate();
+      break;
   }
 }
 
@@ -2219,22 +2195,8 @@ void showPowerGraph() {
   display.drawLine(graphX, graphY, graphX, graphY + graphH, SSD1306_WHITE);
   display.drawLine(graphX, graphY + graphH, graphX + graphW, graphY + graphH, SSD1306_WHITE);
   
-  int dataPoints = batteryHistoryFilled ? BATTERY_HISTORY_SIZE : batteryHistoryIndex;
-  if (dataPoints > 1) {
-    int startIdx = batteryHistoryFilled ? batteryHistoryIndex : 0;
-    
-    for (int i = 0; i < dataPoints - 1; i++) {
-      int idx1 = (startIdx + i) % BATTERY_HISTORY_SIZE;
-      int idx2 = (startIdx + i + 1) % BATTERY_HISTORY_SIZE;
-      
-      int x1 = graphX + (i * graphW / (dataPoints - 1));
-      int y1 = graphY + graphH - (batteryHistory[idx1] * graphH / 100);
-      int x2 = graphX + ((i + 1) * graphW / (dataPoints - 1));
-      int y2 = graphY + graphH - (batteryHistory[idx2] * graphH / 100);
-      
-      display.drawLine(x1, y1, x2, y2, SSD1306_WHITE);
-    }
-  }
+  display.setCursor(20, 30);
+  display.print("Graph disabled.");
   
   display.setCursor(40, 58);
   display.print("Now: ");
@@ -2859,8 +2821,10 @@ void connectToWiFi(String ssid, String password) {
   }
   
   if (WiFi.status() == WL_CONNECTED) {
+    preferences.begin("wifi-creds", false);
     preferences.putString("ssid", ssid);
     preferences.putString("password", password);
+    preferences.end();
     
     ledSuccess();
     showProgressBar("Connected!", 100);
@@ -2880,7 +2844,9 @@ void connectToWiFi(String ssid, String password) {
 }
 
 void forgetNetwork() {
+  preferences.begin("wifi-creds", false);
   preferences.clear();
+  preferences.end();
   WiFi.disconnect();
   showStatus("Network forgotten!", 2000);
   showWiFiMenu();
@@ -3169,9 +3135,6 @@ void refreshCurrentScreen() {
     case STATE_DEVELOPER_MODE:
       showDeveloperMode();
       break;
-    case STATE_BATTERY_GUARDIAN:
-      showBatteryGuardian();
-      break;
     case STATE_ESP_NOW_MENU:
       showESPNowMenu();
       break;
@@ -3270,23 +3233,18 @@ void drawBatteryIndicator() {
   }
   
   display.setTextColor(SSD1306_WHITE);
+
+  if (hasUnreadMessages) {
+    drawIcon(SCREEN_WIDTH - 45, 1, ICON_MESSAGE_UNREAD);
+  }
 }
 
 void drawChargingPlug() {
   int plugX = SCREEN_WIDTH - 35;
-  int plugY = 2;
+  int plugY = 1;
   
-  int anim = (millis() / 200) % 2;
-  
-  display.drawLine(plugX, plugY, plugX, plugY + 2 + anim, SSD1306_WHITE);
-  display.drawLine(plugX + 3, plugY, plugX + 3, plugY + 2 + anim, SSD1306_WHITE);
-  
-  display.drawRect(plugX - 1, plugY + 2, 5, 4, SSD1306_WHITE);
-  display.drawLine(plugX + 1, plugY + 6, plugX + 1, plugY + 7, SSD1306_WHITE);
-  
-  if (anim == 1) {
-    display.drawPixel(plugX - 2, plugY + 4, SSD1306_WHITE);
-    display.drawPixel(plugX + 5, plugY + 3, SSD1306_WHITE);
+  if ((millis() / 500) % 2 == 0) {
+    drawIcon(plugX, plugY, ICON_CHARGING_BOLT);
   }
 }
 
@@ -3317,7 +3275,7 @@ void drawWiFiSignalBars() {
 void handleUp() {
   switch(currentState) {
     case STATE_MAIN_MENU:
-      mainMenuSelection = (mainMenuSelection - 1 + 7) % 7;
+      mainMenuSelection = (mainMenuSelection - 1 + 6) % 6;
       menuTargetScrollY = mainMenuSelection * 22;
       menuTextScrollX = 0;
       break;
@@ -3330,7 +3288,7 @@ void handleUp() {
       showPowerBase();
       break;
     case STATE_SETTINGS_MENU:
-      settingsMenuSelection = (settingsMenuSelection - 1 + 6) % 6;
+      settingsMenuSelection = (settingsMenuSelection - 1 + 7) % 7;
       showSettingsMenu();
       break;
     case STATE_DISPLAY_SETTINGS:
@@ -3393,7 +3351,7 @@ void handleUp() {
 void handleDown() {
   switch(currentState) {
     case STATE_MAIN_MENU:
-      mainMenuSelection = (mainMenuSelection + 1) % 7;
+      mainMenuSelection = (mainMenuSelection + 1) % 6;
       menuTargetScrollY = mainMenuSelection * 22;
       menuTextScrollX = 0;
       break;
@@ -3406,7 +3364,7 @@ void handleDown() {
       showPowerBase();
       break;
     case STATE_SETTINGS_MENU:
-      settingsMenuSelection = (settingsMenuSelection + 1) % 6;
+      settingsMenuSelection = (settingsMenuSelection + 1) % 7;
       showSettingsMenu();
       break;
     case STATE_DISPLAY_SETTINGS:
@@ -3480,11 +3438,15 @@ void handleLeft() {
     case STATE_DISPLAY_SETTINGS:
       if (menuSelection == 0) {
         fontSize = max(1, fontSize - 1);
+        preferences.begin("settings", false);
         preferences.putInt("fontSize", fontSize);
+        preferences.end();
         showDisplaySettings();
       } else if (menuSelection == 1) {
         animSpeed = max(50, animSpeed - 50);
+        preferences.begin("settings", false);
         preferences.putInt("animSpeed", animSpeed);
+        preferences.end();
         showDisplaySettings();
       }
       break;
@@ -3505,11 +3467,15 @@ void handleRight() {
     case STATE_DISPLAY_SETTINGS:
       if (menuSelection == 0) {
         fontSize = min(2, fontSize + 1);
+        preferences.begin("settings", false);
         preferences.putInt("fontSize", fontSize);
+        preferences.end();
         showDisplaySettings();
       } else if (menuSelection == 1) {
         animSpeed = min(300, animSpeed + 50);
+        preferences.begin("settings", false);
         preferences.putInt("animSpeed", animSpeed);
+        preferences.end();
         showDisplaySettings();
       }
       break;
@@ -3550,7 +3516,6 @@ void handleSelect() {
       break;
     case STATE_SYSTEM_INFO:
     case STATE_DEVELOPER_MODE:
-    case STATE_BATTERY_GUARDIAN:
       currentState = STATE_SETTINGS_MENU;
       settingsMenuSelection = 0;
       showSettingsMenu();
@@ -3575,6 +3540,7 @@ void handleSelect() {
           }
           break;
         case 1: // Inbox
+          hasUnreadMessages = false;
           if (inboxCount > 0) {
             currentState = STATE_ESP_NOW_INBOX;
             espnowInboxSelection = 0;
