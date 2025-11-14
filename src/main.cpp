@@ -499,7 +499,7 @@ void setup() {
   Serial.begin(115200);
   delay(1000);
   
-  Serial.println("\n=== ESP32-C3 Ultra Edition v4.1 (Bug Fixed) ===");
+  Serial.println("\n=== ESP32-C3 Ultra Edition v1.0 ===");
   Serial.println("Advanced Features Enabled");
   
   preferences.begin("wifi-creds", false);
