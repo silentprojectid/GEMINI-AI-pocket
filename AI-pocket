@@ -243,10 +243,6 @@ const unsigned long debounceDelay = 200;
 int powerMenuSelection = 0;
 int settingsMenuSelection = 0;
 
-// Keyboard text scrolling variables
-float keyboardTextScrollX = 0;
-unsigned long lastTextInputUpdate = 0;
-const int textInputScrollSpeed = 20; // Speed for marquee scroll
 
 // Icons (8x8 pixel bitmaps)
 const unsigned char ICON_WIFI[] PROGMEM = {
@@ -459,7 +455,6 @@ void handleMacAddressKeyPress() {
       } else {
         userInput.remove(userInput.length() - 1);
       }
-      keyboardTextScrollX = 0; // Reset scroll on backspace
     }
     drawKeyboard();
   } else if (strcmp(key, "#") == 0) {
@@ -481,7 +476,6 @@ void handleMacAddressKeyPress() {
           userInput += ":";
         }
         
-        keyboardTextScrollX = 0; // Reset scroll on new input
       }
     }
     drawKeyboard();
@@ -708,14 +702,6 @@ void loop() {
     }
   }
   
-  // NEW: Update keyboard text scrolling animation
-  if (currentState == STATE_KEYBOARD || currentState == STATE_PASSWORD_INPUT) {
-    if (millis() - lastTextInputUpdate > 50) { // Refresh rate for keyboard
-      drawKeyboard();
-      lastTextInputUpdate = millis();
-    }
-  }
-
   // Main Menu Animation Logic
   if (currentState == STATE_MAIN_MENU) {
     if (abs(menuScrollY - menuTargetScrollY) > 0.1) {
@@ -2578,13 +2564,14 @@ void handleAPISelectSelect() {
 void drawKeyboard() {
   display.clearDisplay();
   drawBatteryIndicator();
-  
+
   display.setTextSize(1);
   display.setTextColor(SSD1306_WHITE);
-  
+
   String displayText = "";
   int prefixWidth = 0;
-  
+  int maxChars = 0;
+
   if (keyboardContext == CONTEXT_WIFI_PASSWORD) {
     display.setCursor(0, 0);
     display.print("Pass:");
@@ -2605,37 +2592,15 @@ void drawKeyboard() {
     prefixWidth = 6;
     displayText = userInput;
   }
-  
-  // NEW: MARQUEE scrolling effect
-  int16_t x1, y1;
-  uint16_t w, h;
-  display.getTextBounds(displayText, 0, 0, &x1, &y1, &w, &h);
-  int textWidth = w;
-  int visibleWidth = SCREEN_WIDTH - prefixWidth - 30; // Leave space for battery icon
 
-  if (textWidth > visibleWidth) {
-    display.setTextWrap(false);
-    
-    if (millis() - lastTextInputUpdate > textInputScrollSpeed) {
-      keyboardTextScrollX--;
-      if (keyboardTextScrollX <= -(textWidth + 10)) {
-        keyboardTextScrollX = 0; // Loop back to the start
-      }
-      lastTextInputUpdate = millis();
-    }
-    
-    display.setCursor(prefixWidth + keyboardTextScrollX, 0);
-    display.print(displayText);
-    display.setCursor(prefixWidth + keyboardTextScrollX + textWidth + 10, 0);
-    display.print(displayText);
-    
-    display.setTextWrap(true);
-  } else {
-    keyboardTextScrollX = 0;
-    display.setCursor(prefixWidth, 0);
-    display.print(displayText);
+  // Corrected text shifting logic
+  maxChars = (SCREEN_WIDTH - prefixWidth - 30) / 6; // Leave space for battery icon
+  if (displayText.length() > maxChars) {
+    displayText = ".." + displayText.substring(displayText.length() - maxChars + 2);
   }
-  
+  display.setCursor(prefixWidth, 0);
+  display.print(displayText);
+
   // Show keyboard mode indicator
   if (keyboardContext != CONTEXT_ESPNOW_MAC) {
     display.setCursor(SCREEN_WIDTH - 18, 0);
@@ -2749,7 +2714,6 @@ void handleKeyPress() {
   } else if (strcmp(key, "<") == 0) {
     if (userInput.length() > 0) {
       userInput.remove(userInput.length() - 1);
-      keyboardTextScrollX = 0; // Reset scroll on backspace
     }
     drawKeyboard();
   } else if (strcmp(key, "#") == 0) {
@@ -2757,7 +2721,6 @@ void handleKeyPress() {
     drawKeyboard();
   } else {
     userInput += key;
-    keyboardTextScrollX = 0; // Reset scroll on new input
     if (currentKeyboardMode == MODE_UPPER) {
       currentKeyboardMode = MODE_LOWER;
     }
@@ -2775,7 +2738,6 @@ void handlePasswordKeyPress() {
   } else if (strcmp(key, "<") == 0) {
     if (passwordInput.length() > 0) {
       passwordInput.remove(passwordInput.length() - 1);
-      keyboardTextScrollX = 0; // Reset scroll on backspace
     }
     drawKeyboard();
   } else if (strcmp(key, "#") == 0) {
@@ -2783,7 +2745,6 @@ void handlePasswordKeyPress() {
     drawKeyboard();
   } else {
     passwordInput += key;
-    keyboardTextScrollX = 0; // Reset scroll on new input
     if (currentKeyboardMode == MODE_UPPER) {
       currentKeyboardMode = MODE_LOWER;
     }
