@@ -21,3 +21,9 @@ jobs:
 
       - name: Build project
         run: pio run
+
+      - name: Upload firmware artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: firmware
+          path: .pio/build/esp32-c3-devkitm-1/firmware.bin
