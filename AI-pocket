@@ -708,6 +708,14 @@ void loop() {
     }
   }
   
+  // NEW: Update keyboard text scrolling animation
+  if (currentState == STATE_KEYBOARD || currentState == STATE_PASSWORD_INPUT) {
+    if (millis() - lastTextInputUpdate > 50) { // Refresh rate for keyboard
+      drawKeyboard();
+      lastTextInputUpdate = millis();
+    }
+  }
+
   // Main Menu Animation Logic
   if (currentState == STATE_MAIN_MENU) {
     if (abs(menuScrollY - menuTargetScrollY) > 0.1) {
@@ -2603,7 +2611,7 @@ void drawKeyboard() {
   uint16_t w, h;
   display.getTextBounds(displayText, 0, 0, &x1, &y1, &w, &h);
   int textWidth = w;
-  int visibleWidth = SCREEN_WIDTH - prefixWidth - 2;
+  int visibleWidth = SCREEN_WIDTH - prefixWidth - 30; // Leave space for battery icon
 
   if (textWidth > visibleWidth) {
     display.setTextWrap(false);
