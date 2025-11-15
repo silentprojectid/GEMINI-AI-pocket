@@ -10,6 +10,36 @@
 #include <esp_wifi.h>
 #include <time.h>
 
+// ISRG Root X1 certificate for GitHub
+const char* root_ca_github = \
+"-----BEGIN CERTIFICATE-----\n" \
+"MIIFazCCA1OgAwIBAgIRAIIQz7DSQONZRGPgu2OCiwAwDQYJKoZIhvcNAQELBQAw\n" \
+"TzELMAkGA1UEBhMCVVMxKTAnBgNVBAoTIEludGVybmV0IFNlY3VyaXR5IFJlc2Vh\n" \
+"cmNoIEdyb3VwMRUwEwYDVQQDEwxJU1JHIFJvb3QgWDEwHhcNMTUwNjA0MTEwNDM4\n" \
+"WhcNMzUwNjA0MTEwNDM4WjBPMQswCQYDVQQGEwJVUzEpMCcGA1UEChMgSW50ZXJu\n" \
+"ZXQgU2VjdXJpdHkgUmVzZWFyY2ggR3JvdXAxFTATBgNVBAMTDElTUkcgUm9vdCBg\n" \
+"WDEwggEiMA0GCSqGSIb3DQEBAQUAA4IBDwAwggEKAoIBAQDCp2mMbQ2dJpY4D5D/\n" \
+"o4zbkVv5xDxPds9kSf2Ea20p+9aLxlUpk3vAMB/fmf203qLQo/uUfOaUOzxK/i7s\n" \
+"m8Q0e/ZzH3Q5Y7tSPWTMb9l5nB/tM8jZDpm5u9lT7u5vKhT8s4a7sm9oJo2qXbC6\n" \
+"nZ7tL6B6sEsm5ctGqVCCfE13f/dYSN6LEyCSWp86v6D/gscJDBKtdo1bT7M9AAmA\n" \
+"xddgExbA5kHiqg0xKekGzS8rA5FmTwesvK/+3+03v4Y91qbY6eDB2GjlEwVvPhb/\n" \
+"Z8i2s8dcfvK0b0bVMDEw1V3+z/d5qRBkgIm5uMA03EBY04yYjT34w9d300g7Wc+w\n" \
+"N42pAgMBAAGjggFvMIIBazAOBgNVHQ8BAf8EBAMCAQYwDwYDVR0TAQH/BAUwAwEB\n" \
+"/zAdBgNVHQ4EFgQUVudqJS7K1x0v+qu+v0L2MAnP2nEwHwYDVR0jBBgwFoAUVudq\n" \
+"JS7K1x0v+qu+v0L2MAnP2nEwVAYDVR0fBE0wSzBJoEegRYZDaHR0cDovL3gxLmku\n" \
+"bW9yZS5kZW50cnVzdC5jb20vY3JsL2lzcmdyb290eDEuY3JsMDQGCCsGAQUFBwEB\n" \
+"BCgwJjAkBggrBgEFBQcwAYYYaHR0cDovL2gxLmMubW9yZS5kZW50cnVzdC5jb20w\n" \
+"VwYIKwYBBQUHAQEESzBJMB8GCCsGAQUFBzABhhNodHRwOi8veDEuOC5tb3JlLmRl\n" \
+"bnRydXN0LmNvbTAoBggrBgEFBQcwAoYcaHR0cDovL2ExLmMubW9yZS5kZW50cnVz\n" \
+"dC5jb20wGAYDVR0GAQQMAgYAMAkGA1UdEwQCMAAwDQYJKoZIhvcNAQELBQADggEB\n" \
+"AHEqC+n3bC8G3d2b2jS2a5EK26sWd3Prmr1wRso3n7gJ1wE8oyk69P125IA+1y/k\n" \
+"DA0+yMbYQMfweJ8L92z1yT4fG5j+2i8fCsSCWzUvY4Y/CgG1Lw4uWYIOlq4y/B5H\n" \
+"4QRtjf0/lEmhBfJDkSaO7I+g24vksC3rI/Vz2a9xJRN3Lz0vjHAEiW+AToSCkKbu\n" \
+"jU/hX0YOhf3VQTQWJfhdg4nZGGyA9e1PdoC8s/sJArLqTMhSAkYi/58+J/Fw2jCH\n" \
+"S3FvEVwl3nWWDPBD2PTAI4LhLS2kFpWZ+eYJFLv27N8mEwK5jBfNl0GYfSGoVSR7\n" \
+"Enq9LCUAMv2/0PMqP/3fR0M=\n" \
+"-----END CERTIFICATE-----\n";
+
 #define GITHUB_REPO "sanzxprojectid/AI-pocket"
 #define FIRMWARE_ASSET_NAME "firmware.bin"
 
@@ -2948,9 +2978,12 @@ void performOTAUpdate() {
     currentState = STATE_OTA_UPDATE;
     showStatus("Checking for\nupdates...", 1000);
 
+    WiFiClientSecure client;
+    client.setCACert(root_ca_github);
+
     HTTPClient http;
     String apiUrl = "https://api.github.com/repos/" + String(GITHUB_REPO) + "/releases/latest";
-    http.begin(apiUrl);
+    http.begin(client, apiUrl);
     http.addHeader("Accept", "application/vnd.github.v3+json");
 
     int httpCode = http.GET();
@@ -2993,7 +3026,7 @@ void performOTAUpdate() {
 
     showStatus("Update found!\nStarting...", 1000);
 
-    http.begin(firmwareUrl);
+    http.begin(client, firmwareUrl);
     httpCode = http.GET();
 
     if (httpCode != HTTP_CODE_OK) {

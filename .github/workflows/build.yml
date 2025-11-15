@@ -1,6 +1,9 @@
-name: PlatformIO Build
+name: PlatformIO Build and Release
 
-on: [push, pull_request]
+on:
+  push:
+    tags:
+      - 'v*.*.*' # Trigger on version tags like v1.0.0
 
 jobs:
   build:
@@ -22,8 +25,10 @@ jobs:
       - name: Build project
         run: pio run
 
-      - name: Upload firmware artifact
-        uses: actions/upload-artifact@v4
+      - name: Create Release and Upload Firmware
+        uses: softprops/action-gh-release@v1
+        if: startsWith(github.ref, 'refs/tags/')
         with:
-          name: firmware
-          path: .pio/build/esp32-c3-devkitm-1/firmware.bin
+          files: .pio/build/esp32-c3-devkitm-1/firmware.bin
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
