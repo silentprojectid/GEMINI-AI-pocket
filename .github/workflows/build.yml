@@ -1,4 +1,4 @@
-name: PlatformIO Build and Release
+name: Build and Release Firmware
 
 on:
   push:
@@ -8,10 +8,10 @@ on:
       - 'v*.*.*'
 
 jobs:
-  build:
+  build-and-release:
     runs-on: ubuntu-latest
     permissions:
-      contents: write # Needed to create releases
+      contents: write # Required to create/update releases
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3
@@ -22,23 +22,30 @@ jobs:
           python-version: '3.9'
 
       - name: Install PlatformIO
-        run: |
-          python -m pip install --upgrade pip
-          pip install platformio
+        run: pip install platformio
 
       - name: Build project
         run: pio run
 
-      - name: Upload firmware artifact for testing
-        uses: actions/upload-artifact@v4
-        with:
-          name: firmware
-          path: .pio/build/esp32-c3-devkitm-1/firmware.bin
+      - name: Determine Release Properties
+        id: release_properties
+        run: |
+          if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+            echo "release_tag=nightly" >> $GITHUB_ENV
+            echo "prerelease=true" >> $GITHUB_ENV
+            echo "release_name=Nightly Build" >> $GITHUB_ENV
+          else
+            echo "release_tag=${{ github.ref_name }}" >> $GITHUB_ENV
+            echo "prerelease=false" >> $GITHUB_ENV
+            echo "release_name=Release ${{ github.ref_name }}" >> $GITHUB_ENV
+          fi
 
-      - name: Create Release and Upload Firmware
+      - name: Create or Update Release with firmware.bin
         uses: softprops/action-gh-release@v1
-        if: startsWith(github.ref, 'refs/tags/') # Only run this step for tags
         with:
+          tag_name: ${{ env.release_tag }}
+          name: ${{ env.release_name }}
+          prerelease: ${{ env.prerelease }}
           files: .pio/build/esp32-c3-devkitm-1/firmware.bin
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
