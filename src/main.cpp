@@ -539,7 +539,9 @@ void setup() {
   }
   
   // Load settings
+  preferences.begin("settings", true); // Open read-only
   wifiAutoOffEnabled = preferences.getBool("wifiAutoOff", false);
+  preferences.end();
   
   if(!display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS)) {
     Serial.println(F("SSD1306 allocation failed"));
@@ -558,8 +560,10 @@ void setup() {
   loadPeers();
   
   // Auto-connect WiFi
+  preferences.begin("wifi-creds", true); // Open read-only
   String savedSSID = preferences.getString("ssid", "");
   String savedPassword = preferences.getString("password", "");
+  preferences.end();
   
   if (savedSSID.length() > 0) {
     showProgressBar("WiFi Connect", 0);
@@ -1486,7 +1490,9 @@ void handleSettingsMenuSelect() {
   switch(settingsMenuSelection) {
     case 0:
       wifiAutoOffEnabled = !wifiAutoOffEnabled;
+      preferences.begin("settings", false); // Open for writing
       preferences.putBool("wifiAutoOff", wifiAutoOffEnabled);
+      preferences.end();
       ledSuccess();
       if (wifiAutoOffEnabled) {
         lastWiFiActivity = millis();
@@ -2630,8 +2636,10 @@ void connectToWiFi(String ssid, String password) {
   }
   
   if (WiFi.status() == WL_CONNECTED) {
+    preferences.begin("wifi-creds", false); // Open for writing
     preferences.putString("ssid", ssid);
     preferences.putString("password", password);
+    preferences.end();
     
     ledSuccess();
     showProgressBar("Connected!", 100);
@@ -2651,7 +2659,9 @@ void connectToWiFi(String ssid, String password) {
 }
 
 void forgetNetwork() {
+  preferences.begin("wifi-creds", false);
   preferences.clear();
+  preferences.end();
   WiFi.disconnect();
   showStatus("Network forgotten!", 2000);
   showWiFiMenu();
