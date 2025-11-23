@@ -2032,3 +2032,879 @@ void handleMainMenuSelect() {
       break;
   }
 }
+
+// ==========================================
+// IMPLEMENTATION OF MISSING FUNCTIONS
+// ==========================================
+
+void drawBatteryIndicator() {
+  int battX = SCREEN_WIDTH - 22;
+  int battY = 2;
+
+  // Draw battery outline
+  display.drawRect(battX, battY, 18, 8, SSD1306_WHITE);
+  display.fillRect(battX + 18, battY + 2, 2, 4, SSD1306_WHITE);
+
+  // Draw battery level
+  int fill = map(batteryPercent, 0, 100, 0, 14);
+  if (fill > 0) {
+    display.fillRect(battX + 2, battY + 2, fill, 4, SSD1306_WHITE);
+  }
+}
+
+void drawWiFiSignalBars() {
+  int rssi = WiFi.RSSI();
+  int bars = 0;
+
+  if (rssi > -55) bars = 4;
+  else if (rssi > -65) bars = 3;
+  else if (rssi > -75) bars = 2;
+  else if (rssi > -85) bars = 1;
+
+  int x = SCREEN_WIDTH - 35;
+  int y = 8; // Bottom alignment
+
+  for (int i = 0; i < 4; i++) {
+    int h = (i + 1) * 2;
+    if (i < bars) {
+      display.fillRect(x + (i * 3), y - h + 2, 2, h, SSD1306_WHITE);
+    } else {
+      display.drawRect(x + (i * 3), y - h + 2, 2, h, SSD1306_WHITE);
+    }
+  }
+}
+
+void drawIcon(int x, int y, const unsigned char* icon) {
+  display.drawBitmap(x, y, icon, 8, 8, SSD1306_WHITE);
+}
+
+void showStatus(String message, int delayMs) {
+  // Clear a portion of the screen or popup
+  int boxW = SCREEN_WIDTH - 20;
+  int boxH = 40;
+  int boxX = 10;
+  int boxY = (SCREEN_HEIGHT - boxH) / 2;
+
+  display.fillRect(boxX, boxY, boxW, boxH, SSD1306_BLACK);
+  display.drawRect(boxX, boxY, boxW, boxH, SSD1306_WHITE);
+
+  display.setCursor(boxX + 5, boxY + 5);
+  display.setTextSize(1);
+  display.setTextColor(SSD1306_WHITE);
+
+  // Simple word wrap or just print
+  display.print(message);
+  display.display();
+
+  if (delayMs > 0) {
+    delay(delayMs);
+  }
+}
+
+void showProgressBar(String title, int percent) {
+  display.clearDisplay();
+  display.setTextSize(1);
+  display.setCursor(0, 0);
+  display.print(title);
+
+  int barX = 10;
+  int barY = 30;
+  int barW = SCREEN_WIDTH - 20;
+  int barH = 10;
+
+  display.drawRect(barX, barY, barW, barH, SSD1306_WHITE);
+
+  int fillW = map(percent, 0, 100, 0, barW - 4);
+  if (fillW > 0) {
+    display.fillRect(barX + 2, barY + 2, fillW, barH - 4, SSD1306_WHITE);
+  }
+
+  display.setCursor(SCREEN_WIDTH / 2 - 10, barY + 15);
+  display.print(percent);
+  display.print("%");
+
+  display.display();
+}
+
+void showLoadingAnimation() {
+  display.clearDisplay();
+  drawBatteryIndicator();
+
+  display.setCursor(35, 25);
+  display.print("Loading...");
+
+  // Simple spinner
+  int cx = SCREEN_WIDTH / 2;
+  int cy = SCREEN_HEIGHT / 2 + 10;
+  int r = 8;
+
+  for (int i = 0; i < 8; i++) {
+    float angle = (loadingFrame + i) * (2 * PI / 8);
+    int x = cx + cos(angle) * r;
+    int y = cy + sin(angle) * r;
+
+    if (i == 0) {
+      display.fillCircle(x, y, 2, SSD1306_WHITE);
+    } else {
+      display.drawPixel(x, y, SSD1306_WHITE);
+    }
+  }
+
+  display.display();
+}
+
+void updateBatteryLevel() {
+    // Stub: Read battery voltage if hardware supports it
+    // For now we keep the stub values
+    // batteryPercent = ...
+}
+
+// ==========================================
+// NETWORK AND SYSTEM FUNCTIONS
+// ==========================================
+
+void checkWiFiTimeout() {
+  if (WiFi.status() == WL_CONNECTED && (millis() - lastWiFiActivity > wifiTimeout)) {
+    Serial.println("WiFi Timeout - Disconnecting");
+    WiFi.disconnect();
+    WiFi.mode(WIFI_OFF);
+    showStatus("WiFi Auto-Off", 2000);
+    ledQuickFlash();
+  }
+}
+
+void forgetNetwork() {
+  WiFi.disconnect(true, true);
+  preferences.begin("wifi-creds", false);
+  preferences.clear();
+  preferences.end();
+
+  showStatus("Network forgotten", 1500);
+  scanWiFiNetworks();
+}
+
+void connectToWiFi(String ssid, String password) {
+  showProgressBar("Connecting...", 0);
+
+  WiFi.begin(ssid.c_str(), password.c_str());
+
+  int attempts = 0;
+  while (WiFi.status() != WL_CONNECTED && attempts < 20) {
+    delay(500);
+    attempts++;
+    showProgressBar("Connecting...", attempts * 5);
+  }
+
+  if (WiFi.status() == WL_CONNECTED) {
+    preferences.begin("wifi-creds", false);
+    preferences.putString("ssid", ssid);
+    preferences.putString("password", password);
+    preferences.end();
+
+    showStatus("Connected!", 1500);
+    currentState = STATE_MAIN_MENU;
+    showMainMenu();
+  } else {
+    showStatus("Failed!", 1500);
+    currentState = STATE_WIFI_MENU;
+    showWiFiMenu();
+  }
+}
+
+void updatePowerConsumption() {
+    // Basic estimation
+    wifiPowerDraw = (WiFi.status() == WL_CONNECTED) ? 80 : 10;
+    displayPowerDraw = 20; // Approx for OLED
+    cpuPowerDraw = 30 + (cpuFreq / 10);
+    totalPowerDraw = wifiPowerDraw + displayPowerDraw + cpuPowerDraw;
+}
+
+// ==========================================
+// INPUT HANDLING AND KEYBOARD FUNCTIONS
+// ==========================================
+
+const char* getCurrentKey() {
+  if (currentKeyboardMode == MODE_LOWER) {
+    return keyboardLower[cursorY][cursorX];
+  } else if (currentKeyboardMode == MODE_UPPER) {
+    return keyboardUpper[cursorY][cursorX];
+  } else if (currentKeyboardMode == MODE_NUMBERS) {
+    return keyboardNumbers[cursorY][cursorX];
+  } else {
+    return keyboardMac[cursorY][cursorX];
+  }
+}
+
+void toggleKeyboardMode() {
+  if (keyboardContext == CONTEXT_ESPNOW_MAC) {
+    // Only one mode for MAC
+    return;
+  }
+
+  if (currentKeyboardMode == MODE_LOWER) {
+    currentKeyboardMode = MODE_UPPER;
+  } else if (currentKeyboardMode == MODE_UPPER) {
+    currentKeyboardMode = MODE_NUMBERS;
+  } else {
+    currentKeyboardMode = MODE_LOWER;
+  }
+  drawKeyboard();
+}
+
+void drawKeyboard() {
+  display.clearDisplay();
+  drawBatteryIndicator();
+
+  // Draw Input Field
+  display.drawRect(2, 2, SCREEN_WIDTH - 4, 14, SSD1306_WHITE);
+
+  display.setCursor(5, 5);
+  String displayText = "";
+  if (keyboardContext == CONTEXT_WIFI_PASSWORD) {
+     for(unsigned int i=0; i<passwordInput.length(); i++) displayText += "*";
+  } else {
+     displayText = userInput;
+  }
+
+  // Handle scrolling of input text
+  int maxChars = 18;
+  if (displayText.length() > maxChars) {
+      displayText = displayText.substring(displayText.length() - maxChars);
+  }
+  display.print(displayText);
+
+  int startY = 20;
+  int keyW = 11;
+  int keyH = 10;
+  int gap = 1;
+
+  for (int r = 0; r < 3; r++) {
+    for (int c = 0; c < 10; c++) {
+      int x = 2 + c * (keyW + gap);
+      int y = startY + r * (keyH + gap);
+
+      const char* keyLabel;
+      if (keyboardContext == CONTEXT_ESPNOW_MAC) {
+         keyLabel = keyboardMac[r][c];
+      } else if (currentKeyboardMode == MODE_LOWER) {
+         keyLabel = keyboardLower[r][c];
+      } else if (currentKeyboardMode == MODE_UPPER) {
+         keyLabel = keyboardUpper[r][c];
+      } else {
+         keyLabel = keyboardNumbers[r][c];
+      }
+
+      if (r == cursorY && c == cursorX) {
+        display.fillRect(x, y, keyW, keyH, SSD1306_WHITE);
+        display.setTextColor(SSD1306_BLACK);
+      } else {
+        display.drawRect(x, y, keyW, keyH, SSD1306_WHITE);
+        display.setTextColor(SSD1306_WHITE);
+      }
+
+      display.setCursor(x + 3, y + 1);
+      display.print(keyLabel);
+    }
+  }
+
+  display.setTextColor(SSD1306_WHITE);
+  display.setCursor(2, 56);
+  if (keyboardContext == CONTEXT_ESPNOW_MAC) {
+     display.print("MAC Address Input");
+  } else {
+     display.print("SEL:Type #:Mode");
+  }
+
+  display.display();
+}
+
+void handleKeyPress() {
+  const char* key = getCurrentKey();
+
+  if (strcmp(key, "OK") == 0) {
+    if (keyboardContext == CONTEXT_CHAT) {
+      sendToGemini();
+    } else if (keyboardContext == CONTEXT_ESPNOW_MESSAGE) {
+      // Send message logic
+      currentState = STATE_ESP_NOW_SEND;
+      uint8_t mac[6];
+      memcpy(mac, peers[espnowPeerSelection].macAddr, 6);
+      sendESPNowMessage(userInput, mac);
+      userInput = "";
+    }
+  } else if (strcmp(key, "<") == 0) {
+    if (userInput.length() > 0) {
+      userInput.remove(userInput.length() - 1);
+    }
+    drawKeyboard();
+  } else if (strcmp(key, "#") == 0) {
+    toggleKeyboardMode();
+  } else {
+    userInput += key;
+    drawKeyboard();
+  }
+}
+
+void handlePasswordKeyPress() {
+  const char* key = getCurrentKey();
+
+  if (strcmp(key, "OK") == 0) {
+    connectToWiFi(selectedSSID, passwordInput);
+  } else if (strcmp(key, "<") == 0) {
+    if (passwordInput.length() > 0) {
+      passwordInput.remove(passwordInput.length() - 1);
+    }
+    drawKeyboard();
+  } else if (strcmp(key, "#") == 0) {
+    toggleKeyboardMode();
+  } else {
+    passwordInput += key;
+    drawKeyboard();
+  }
+}
+
+void handleUp() {
+  lastWiFiActivity = millis();
+
+  switch(currentState) {
+    case STATE_MAIN_MENU:
+      if (menuSelection > 0) {
+        menuSelection--;
+        menuTargetScrollY = menuSelection * 22;
+        menuTextScrollX = 0;
+        lastMenuTextScrollTime = millis();
+      }
+      break;
+    case STATE_WIFI_MENU:
+      if (menuSelection > 0) {
+        menuSelection--;
+        showWiFiMenu();
+      }
+      break;
+    case STATE_WIFI_SCAN:
+      if (selectedNetwork > 0) {
+        selectedNetwork--;
+        if (selectedNetwork < wifiPage * wifiPerPage) {
+          wifiPage--;
+        }
+        displayWiFiNetworks();
+      }
+      break;
+    case STATE_SETTINGS_MENU:
+      if (settingsMenuSelection > 0) {
+        settingsMenuSelection--;
+        showSettingsMenu();
+      }
+      break;
+    case STATE_POWER_BASE:
+      if (powerMenuSelection > 0) {
+        powerMenuSelection--;
+        showPowerBase();
+      }
+      break;
+    case STATE_ESP_NOW_MENU:
+      if (espnowMenuSelection > 0) {
+        espnowMenuSelection--;
+        showESPNowMenu();
+      }
+      break;
+    case STATE_ESP_NOW_PEERS:
+      if (espnowPeerSelection > 0) {
+        espnowPeerSelection--;
+        showESPNowPeers();
+      }
+      break;
+    case STATE_ESP_NOW_PEER_OPTIONS:
+      if (espnowPeerOptionsSelection > 0) {
+        espnowPeerOptionsSelection--;
+        showESPNowPeerOptions();
+      }
+      break;
+    case STATE_ESP_NOW_SEND:
+      if (espnowPeerSelection > 0) {
+        espnowPeerSelection--;
+        showESPNowSend();
+      }
+      break;
+    case STATE_ESP_NOW_INBOX:
+      if (espnowInboxSelection > 0) {
+        espnowInboxSelection--;
+        showESPNowInbox();
+      }
+      break;
+    case STATE_API_SELECT:
+      if (menuSelection > 0) {
+        menuSelection--;
+        showAPISelect();
+      }
+      break;
+    case STATE_KEYBOARD:
+    case STATE_PASSWORD_INPUT:
+      if (cursorY > 0) {
+        cursorY--;
+        drawKeyboard();
+      }
+      break;
+    case STATE_CALCULATOR:
+      if (cursorY > 0) {
+        cursorY--;
+        showCalculator();
+      }
+      break;
+    case STATE_CHAT_RESPONSE:
+      if (scrollOffset > 0) {
+        scrollOffset -= 10;
+        displayResponse();
+      }
+      break;
+    case STATE_GAME_FLAPPY:
+        handleGameInput(-1);
+        break;
+  }
+}
+
+void handleDown() {
+  lastWiFiActivity = millis();
+
+  switch(currentState) {
+    case STATE_MAIN_MENU:
+      if (menuSelection < 6) { // 7 items
+        menuSelection++;
+        menuTargetScrollY = menuSelection * 22;
+        menuTextScrollX = 0;
+        lastMenuTextScrollTime = millis();
+      }
+      break;
+    case STATE_WIFI_MENU:
+      if (menuSelection < 2) {
+        menuSelection++;
+        showWiFiMenu();
+      }
+      break;
+    case STATE_WIFI_SCAN:
+      if (selectedNetwork < networkCount - 1) {
+        selectedNetwork++;
+        if (selectedNetwork >= (wifiPage + 1) * wifiPerPage) {
+          wifiPage++;
+        }
+        displayWiFiNetworks();
+      }
+      break;
+    case STATE_SETTINGS_MENU:
+      if (settingsMenuSelection < 2) {
+        settingsMenuSelection++;
+        showSettingsMenu();
+      }
+      break;
+    case STATE_POWER_BASE:
+      if (powerMenuSelection < 4) {
+        powerMenuSelection++;
+        showPowerBase();
+      }
+      break;
+    case STATE_ESP_NOW_MENU:
+      if (espnowMenuSelection < 3) {
+        espnowMenuSelection++;
+        showESPNowMenu();
+      }
+      break;
+    case STATE_ESP_NOW_PEERS:
+      if (espnowPeerSelection < peerCount - 1) {
+        espnowPeerSelection++;
+        showESPNowPeers();
+      }
+      break;
+    case STATE_ESP_NOW_PEER_OPTIONS:
+      if (espnowPeerOptionsSelection < 2) {
+        espnowPeerOptionsSelection++;
+        showESPNowPeerOptions();
+      }
+      break;
+    case STATE_ESP_NOW_SEND:
+      if (espnowPeerSelection < peerCount - 1) {
+        espnowPeerSelection++;
+        showESPNowSend();
+      }
+      break;
+    case STATE_ESP_NOW_INBOX:
+      if (espnowInboxSelection < inboxCount - 1) {
+        espnowInboxSelection++;
+        showESPNowInbox();
+      }
+      break;
+    case STATE_API_SELECT:
+      if (menuSelection < 1) {
+        menuSelection++;
+        showAPISelect();
+      }
+      break;
+    case STATE_KEYBOARD:
+    case STATE_PASSWORD_INPUT:
+      if (cursorY < 2) {
+        cursorY++;
+        drawKeyboard();
+      }
+      break;
+    case STATE_CALCULATOR:
+      if (cursorY < 3) {
+        cursorY++;
+        showCalculator();
+      }
+      break;
+    case STATE_CHAT_RESPONSE:
+      scrollOffset += 10;
+      displayResponse();
+      break;
+    case STATE_GAME_FLAPPY:
+        // Down does nothing or maybe duck?
+        break;
+  }
+}
+
+void handleLeft() {
+  lastWiFiActivity = millis();
+
+  switch(currentState) {
+    case STATE_KEYBOARD:
+    case STATE_PASSWORD_INPUT:
+      if (cursorX > 0) {
+        cursorX--;
+        drawKeyboard();
+      }
+      break;
+    case STATE_CALCULATOR:
+      if (cursorX > 0) {
+        cursorX--;
+        showCalculator();
+      }
+      break;
+  }
+}
+
+void handleRight() {
+  lastWiFiActivity = millis();
+
+  switch(currentState) {
+    case STATE_KEYBOARD:
+    case STATE_PASSWORD_INPUT:
+      if (cursorX < 9) {
+        cursorX++;
+        drawKeyboard();
+      }
+      break;
+    case STATE_CALCULATOR:
+      if (cursorX < 3) {
+        cursorX++;
+        showCalculator();
+      }
+      break;
+  }
+}
+
+void handleSelect() {
+  lastWiFiActivity = millis();
+
+  switch(currentState) {
+    case STATE_MAIN_MENU:
+      handleMainMenuSelect();
+      break;
+    case STATE_WIFI_MENU:
+      handleWiFiMenuSelect();
+      break;
+    case STATE_WIFI_SCAN:
+      if (networkCount > 0) {
+        selectedSSID = networks[selectedNetwork].ssid;
+        if (networks[selectedNetwork].encrypted) {
+          passwordInput = "";
+          currentState = STATE_PASSWORD_INPUT;
+          keyboardContext = CONTEXT_WIFI_PASSWORD;
+          cursorX = 0;
+          cursorY = 0;
+          drawKeyboard();
+        } else {
+          connectToWiFi(selectedSSID, "");
+        }
+      }
+      break;
+    case STATE_SETTINGS_MENU:
+      handleSettingsMenuSelect();
+      break;
+    case STATE_POWER_BASE:
+      handlePowerBaseSelect();
+      break;
+    case STATE_ESP_NOW_MENU:
+      switch(espnowMenuSelection) {
+        case 0:
+          currentState = STATE_ESP_NOW_SEND;
+          showESPNowSend();
+          break;
+        case 1:
+          currentState = STATE_ESP_NOW_INBOX;
+          showESPNowInbox();
+          break;
+        case 2:
+          currentState = STATE_ESP_NOW_PEERS;
+          showESPNowPeers();
+          break;
+        case 3:
+          currentState = STATE_MAIN_MENU;
+          showMainMenu();
+          break;
+      }
+      break;
+    case STATE_ESP_NOW_PEERS:
+      if (peerCount == 0) {
+         // Add peer
+         currentState = STATE_KEYBOARD;
+         keyboardContext = CONTEXT_ESPNOW_MAC;
+         currentKeyboardMode = MODE_MAC;
+         userInput = "";
+         cursorX = 0; cursorY = 0;
+         drawKeyboard();
+      } else {
+         currentState = STATE_ESP_NOW_PEER_OPTIONS;
+         espnowPeerOptionsSelection = 0;
+         showESPNowPeerOptions();
+      }
+      break;
+    case STATE_ESP_NOW_PEER_OPTIONS:
+      if (espnowPeerOptionsSelection == 0) {
+          // Rename (Not fully implemented, maybe go to keyboard)
+          showStatus("Not impl.", 1000);
+      } else if (espnowPeerOptionsSelection == 1) {
+          deletePeer(espnowPeerSelection);
+          currentState = STATE_ESP_NOW_PEERS;
+          showESPNowPeers();
+      } else {
+          currentState = STATE_ESP_NOW_PEERS;
+          showESPNowPeers();
+      }
+      break;
+    case STATE_ESP_NOW_SEND:
+      if (peerCount > 0) {
+        currentState = STATE_KEYBOARD;
+        keyboardContext = CONTEXT_ESPNOW_MESSAGE;
+        userInput = "";
+        cursorX = 0; cursorY = 0;
+        drawKeyboard();
+      }
+      break;
+    case STATE_ESP_NOW_INBOX:
+       if (inboxCount > 0) {
+         inbox[espnowInboxSelection].read = true;
+         // Show full message (maybe overlay)
+         showStatus(inbox[espnowInboxSelection].text, 3000);
+         showESPNowInbox();
+       }
+       break;
+    case STATE_API_SELECT:
+      handleAPISelectSelect();
+      break;
+    case STATE_KEYBOARD:
+      if (keyboardContext == CONTEXT_ESPNOW_MAC) {
+        handleMacAddressKeyPress();
+      } else {
+        handleKeyPress();
+      }
+      break;
+    case STATE_PASSWORD_INPUT:
+      handlePasswordKeyPress();
+      break;
+    case STATE_CALCULATOR:
+      handleCalculatorInput();
+      break;
+    case STATE_GAME_FLAPPY:
+      handleGameInput(-1); // Jump
+      break;
+  }
+}
+
+void handleBackButton() {
+  lastWiFiActivity = millis();
+
+  switch(currentState) {
+    case STATE_WIFI_MENU:
+    case STATE_CALCULATOR:
+    case STATE_POWER_BASE:
+    case STATE_SETTINGS_MENU:
+    case STATE_ESP_NOW_MENU:
+    case STATE_GAME_FLAPPY:
+      currentState = STATE_MAIN_MENU;
+      menuSelection = mainMenuSelection;
+      menuTargetScrollY = mainMenuSelection * 22;
+      showMainMenu();
+      break;
+    case STATE_WIFI_SCAN:
+      currentState = STATE_WIFI_MENU;
+      showWiFiMenu();
+      break;
+    case STATE_POWER_VISUAL:
+    case STATE_POWER_STATS:
+    case STATE_POWER_GRAPH:
+    case STATE_POWER_CONSUMPTION:
+      currentState = STATE_POWER_BASE;
+      showPowerBase();
+      break;
+    case STATE_ESP_NOW_SEND:
+    case STATE_ESP_NOW_INBOX:
+    case STATE_ESP_NOW_PEERS:
+      currentState = STATE_ESP_NOW_MENU;
+      showESPNowMenu();
+      break;
+    case STATE_ESP_NOW_PEER_OPTIONS:
+      currentState = STATE_ESP_NOW_PEERS;
+      showESPNowPeers();
+      break;
+    case STATE_KEYBOARD:
+      if (keyboardContext == CONTEXT_ESPNOW_MAC) {
+         currentState = STATE_ESP_NOW_PEERS;
+         showESPNowPeers();
+      } else if (keyboardContext == CONTEXT_ESPNOW_MESSAGE) {
+         currentState = STATE_ESP_NOW_SEND;
+         showESPNowSend();
+      } else {
+         currentState = STATE_MAIN_MENU;
+         showMainMenu();
+      }
+      break;
+    case STATE_PASSWORD_INPUT:
+      currentState = STATE_WIFI_SCAN;
+      displayWiFiNetworks();
+      break;
+    case STATE_CHAT_RESPONSE:
+      currentState = STATE_KEYBOARD;
+      drawKeyboard();
+      break;
+    case STATE_SYSTEM_INFO:
+      currentState = STATE_SETTINGS_MENU;
+      showSettingsMenu();
+      break;
+    case STATE_API_SELECT:
+      currentState = STATE_MAIN_MENU;
+      showMainMenu();
+      break;
+  }
+}
+
+// ==========================================
+// AI AND SCREEN REFRESH LOGIC
+// ==========================================
+
+void refreshCurrentScreen() {
+  switch(currentState) {
+    case STATE_MAIN_MENU: showMainMenu(); break;
+    case STATE_WIFI_MENU: showWiFiMenu(); break;
+    case STATE_WIFI_SCAN: displayWiFiNetworks(); break;
+    case STATE_CALCULATOR: showCalculator(); break;
+    case STATE_POWER_BASE: showPowerBase(); break;
+    case STATE_POWER_VISUAL: showPowerVisual(); break;
+    case STATE_POWER_STATS: showPowerStats(); break;
+    case STATE_POWER_GRAPH: showPowerGraph(); break;
+    case STATE_POWER_CONSUMPTION: showPowerConsumption(); break;
+    case STATE_API_SELECT: showAPISelect(); break;
+    case STATE_SYSTEM_INFO: showSystemInfo(); break;
+    case STATE_SETTINGS_MENU: showSettingsMenu(); break;
+    case STATE_ESP_NOW_MENU: showESPNowMenu(); break;
+    case STATE_ESP_NOW_SEND: showESPNowSend(); break;
+    case STATE_ESP_NOW_INBOX: showESPNowInbox(); break;
+    case STATE_ESP_NOW_PEERS: showESPNowPeers(); break;
+    case STATE_ESP_NOW_PEER_OPTIONS: showESPNowPeerOptions(); break;
+    case STATE_LOADING: showLoadingAnimation(); break;
+    case STATE_KEYBOARD: drawKeyboard(); break;
+    case STATE_PASSWORD_INPUT: drawKeyboard(); break;
+    case STATE_CHAT_RESPONSE: displayResponse(); break;
+    case STATE_GAME_FLAPPY: drawGame(); break;
+    default: showMainMenu(); break;
+  }
+}
+
+void displayResponse() {
+  display.clearDisplay();
+  drawBatteryIndicator();
+
+  display.setCursor(0, 0);
+  display.setTextSize(1);
+
+  int y = 12 - scrollOffset;
+
+  // Wrap text manually or let GFX do it. GFX does it if wrap is true.
+  // But we need to handle scrolling, so we might need to draw text offset by scrollOffset.
+  display.setCursor(0, y);
+  display.print(aiResponse);
+
+  // Scroll bar
+  if (aiResponse.length() > 100) { // arbitrary threshold for scrollbar
+      int totalH = (aiResponse.length() / 21 + 1) * 8;
+      int visibleH = SCREEN_HEIGHT - 12;
+      if (totalH > visibleH) {
+         int scrollH = (visibleH * visibleH) / totalH;
+         int scrollY = 12 + (scrollOffset * visibleH) / totalH;
+         display.fillRect(SCREEN_WIDTH - 2, scrollY, 2, scrollH, SSD1306_WHITE);
+      }
+  }
+
+  display.display();
+}
+
+void sendToGemini() {
+  if (WiFi.status() != WL_CONNECTED) {
+    showStatus("No WiFi!", 2000);
+    return;
+  }
+
+  currentState = STATE_LOADING;
+  loadingFrame = 0;
+  showLoadingAnimation();
+
+  WiFiClientSecure client;
+  client.setInsecure();
+
+  HTTPClient http;
+
+  String apiKey = (selectedAPIKey == 1) ? geminiApiKey1 : geminiApiKey2;
+  String url = String(geminiEndpoint) + "?key=" + apiKey;
+
+  // JSON Payload
+  JsonDocument doc;
+  JsonObject content = doc["contents"].add();
+  JsonObject parts = content["parts"].add();
+  parts["text"] = userInput;
+
+  String requestBody;
+  serializeJson(doc, requestBody);
+
+  Serial.println("Sending to Gemini...");
+
+  http.begin(client, url);
+  http.addHeader("Content-Type", "application/json");
+
+  int httpResponseCode = http.POST(requestBody);
+
+  if (httpResponseCode > 0) {
+    String response = http.getString();
+    Serial.println("Response received");
+
+    // Parse JSON
+    JsonDocument responseDoc;
+    DeserializationError error = deserializeJson(responseDoc, response);
+
+    if (!error) {
+      if (responseDoc.containsKey("candidates")) {
+         const char* text = responseDoc["candidates"][0]["content"]["parts"][0]["text"];
+         aiResponse = String(text);
+      } else {
+         aiResponse = "Error: Invalid response format";
+      }
+    } else {
+      aiResponse = "Error: JSON Parsing failed";
+    }
+  } else {
+    aiResponse = "Error: HTTP " + String(httpResponseCode);
+  }
+
+  http.end();
+
+  currentState = STATE_CHAT_RESPONSE;
+  scrollOffset = 0;
+  displayResponse();
+}
