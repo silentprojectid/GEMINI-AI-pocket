@@ -411,13 +411,23 @@ void ledQuickFlash() {
 }
 
 void setup() {
+  setCpuFrequencyMhz(240); // Set CPU to 240 MHz for maximum performance
+
   Serial.begin(115200);
   delay(1000);
   
+  psramInit(); // Enable PSRAM
+
   Serial.println("\n=== ESP32-S3 Gaming Edition v1.0 ===");
+  if (psramFound()) {
+    Serial.printf("PSRAM Active! Size: %d bytes\n", ESP.getPsramSize());
+  } else {
+    Serial.println("PSRAM Not Found!");
+  }
   
   preferences.begin("wifi-creds", false);
   Wire.begin(SDA_PIN, SCL_PIN);
+  Wire.setClock(1000000); // Set I2C to 1 MHz for smoother OLED updates
   
   pinMode(BTN_UP, INPUT_PULLUP);
   pinMode(BTN_DOWN, INPUT_PULLUP);
