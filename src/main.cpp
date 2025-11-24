@@ -792,8 +792,8 @@ void updateSpaceInvaders() {
           
           invaders.enemyBullets[i].active = false;
           invaders.lives--;
-          screenShake = 6;
-          ledError();
+          screenShake = 10;
+          // Removed blocking ledError()
           
           if (invaders.lives <= 0) {
             invaders.gameOver = true;
@@ -822,7 +822,8 @@ void updateSpaceInvaders() {
             invaders.lives++;
             break;
         }
-        ledSuccess();
+        // Removed blocking ledSuccess() for smoother gameplay
+        spawnExplosion(invaders.playerX + 4, invaders.playerY, 8);
       }
     }
   }
@@ -1170,8 +1171,8 @@ void updateSideScroller() {
           abs(scroller.playerY - scroller.obstacles[i].y) < 8) {
         if (!scroller.shieldActive) {
           scroller.lives--;
-          screenShake = 6;
-          ledError();
+          screenShake = 10;
+          // Removed blocking ledError()
           if (scroller.lives <= 0) {
             scroller.gameOver = true;
           }
