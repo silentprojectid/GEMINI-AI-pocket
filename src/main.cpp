@@ -31,7 +31,7 @@ Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 // Dual Gemini API Keys
 const char* geminiApiKey1 = "AIzaSyAtKmbcvYB8wuHI9bqkOhufJld0oSKv7zM";
 const char* geminiApiKey2 = "AIzaSyBvXPx3SrrRRJIU9Wf6nKcuQu9XjBlSH6Y";
-const char* geminiEndpoint = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent";
+const char* geminiEndpoint = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent";
 
 Preferences preferences;
 
@@ -50,6 +50,56 @@ const int wifiPerPage = 4;
 // Battery monitoring
 float batteryVoltage = 5.0;
 int batteryPercent = 100;
+
+// Game Effects System
+#define MAX_PARTICLES 30
+struct Particle {
+  float x, y;
+  float vx, vy;
+  int life;
+  bool active;
+};
+Particle particles[MAX_PARTICLES];
+int screenShake = 0;
+
+void spawnExplosion(float x, float y, int count) {
+  for (int i = 0; i < count; i++) {
+    for (int j = 0; j < MAX_PARTICLES; j++) {
+      if (!particles[j].active) {
+        particles[j].active = true;
+        particles[j].x = x;
+        particles[j].y = y;
+        float angle = random(0, 360) * PI / 180.0;
+        float speed = random(5, 20) / 10.0;
+        particles[j].vx = cos(angle) * speed;
+        particles[j].vy = sin(angle) * speed;
+        particles[j].life = random(10, 30);
+        break;
+      }
+    }
+  }
+}
+
+void updateParticles() {
+  for (int i = 0; i < MAX_PARTICLES; i++) {
+    if (particles[i].active) {
+      particles[i].x += particles[i].vx;
+      particles[i].y += particles[i].vy;
+      particles[i].life--;
+      if (particles[i].life <= 0) particles[i].active = false;
+    }
+  }
+}
+
+void drawParticles() {
+  for (int i = 0; i < MAX_PARTICLES; i++) {
+    if (particles[i].active) {
+      if (particles[i].life % 2 == 0) { // Flicker effect
+        display.drawPixel((int)particles[i].x, (int)particles[i].y, SSD1306_WHITE);
+      }
+    }
+  }
+}
 
 int loadingFrame = 0;
 unsigned long lastLoadingUpdate = 0;
@@ -90,8 +140,8 @@ KeyboardContext keyboardContext = CONTEXT_CHAT;
 #define MAX_POWERUPS 3
 
 struct SpaceInvaders {
-  int playerX;
-  int playerY;
+  float playerX;
+  float playerY;
   int playerWidth;
   int playerHeight;
   int lives;
@@ -102,7 +152,7 @@ struct SpaceInvaders {
   int shieldTime;
   
   struct Enemy {
-    int x, y;
+    float x, y;
     int width, height;
     bool active;
     int type; // 0=basic, 1=fast, 2=tank
@@ -111,25 +161,26 @@ struct SpaceInvaders {
   Enemy enemies[MAX_ENEMIES];
   
   struct Bullet {
-    int x, y;
+    float x, y;
     bool active;
   };
   Bullet bullets[MAX_BULLETS];
   Bullet enemyBullets[MAX_ENEMY_BULLETS];
   
   struct PowerUp {
-    int x, y;
+    float x, y;
     int type; // 0=weapon, 1=shield, 2=life
     bool active;
   };
   PowerUp powerups[MAX_POWERUPS];
   
-  int enemyDirection; // 1=right, -1=left
+  float enemyDirection; // 1=right, -1=left
   unsigned long lastEnemyMove;
   unsigned long lastEnemyShoot;
   unsigned long lastSpawn;
   bool bossActive;
-  int bossX, bossY, bossHealth;
+  float bossX, bossY;
+  int bossHealth;
 };
 SpaceInvaders invaders;
 
@@ -139,7 +190,7 @@ SpaceInvaders invaders;
 #define MAX_SCROLLER_ENEMIES 6
 
 struct SideScroller {
-  int playerX, playerY;
+  float playerX, playerY;
   int playerWidth, playerHeight;
   int lives;
   int score;
@@ -150,14 +201,15 @@ struct SideScroller {
   bool shieldActive;
   
   struct Obstacle {
-    int x, y, width, height;
+    float x, y;
+    int width, height;
     bool active;
-    int scrollSpeed;
+    float scrollSpeed;
   };
   Obstacle obstacles[MAX_OBSTACLES];
   
   struct ScrollerBullet {
-    int x, y;
+    float x, y;
     int dirX, dirY; // -1, 0, or 1
     bool active;
     int damage;
@@ -165,7 +217,7 @@ struct SideScroller {
   ScrollerBullet bullets[MAX_SCROLLER_BULLETS];
   
   struct ScrollerEnemy {
-    int x, y;
+    float x, y;
     int width, height;
     bool active;
     int health;
@@ -175,7 +227,7 @@ struct SideScroller {
   ScrollerEnemy enemies[MAX_SCROLLER_ENEMIES];
   
   struct ScrollerEnemyBullet {
-    int x, y;
+    float x, y;
     bool active;
   };
   ScrollerEnemyBullet enemyBullets[MAX_OBSTACLES];
@@ -190,10 +242,10 @@ SideScroller scroller;
 
 // Pong Game State
 struct Pong {
-  int ballX, ballY;
-  int ballDirX, ballDirY;
-  int ballSpeed;
-  int paddle1Y, paddle2Y;
+  float ballX, ballY;
+  float ballDirX, ballDirY;
+  float ballSpeed;
+  float paddle1Y, paddle2Y;
   int paddleWidth, paddleHeight;
   int score1, score2;
   bool gameOver;
@@ -214,7 +266,8 @@ enum AppState {
   STATE_GAME_SPACE_INVADERS,
   STATE_GAME_SIDE_SCROLLER,
   STATE_GAME_PONG,
-  STATE_GAME_SELECT
+  STATE_GAME_SELECT,
+  STATE_VIDEO_PLAYER
 };
 
 AppState currentState = STATE_MAIN_MENU;
@@ -252,6 +305,22 @@ const unsigned char ICON_CHAT[] PROGMEM = {
 const unsigned char ICON_GAME[] PROGMEM = {
   0x3C, 0x42, 0x99, 0xA5, 0xA5, 0x99, 0x42, 0x3C
 };
+
+const unsigned char ICON_VIDEO[] PROGMEM = {
+  0x7E, 0x81, 0x81, 0xBD, 0xBD, 0x81, 0x81, 0x7E
+};
+
+// Video Player Data
+// ==========================================
+// PASTE YOUR VIDEO FRAME ARRAY HERE
+// Format: const unsigned char frame1[] PROGMEM = { ... };
+//         const unsigned char* videoFrames[] = { frame1, frame2, ... };
+// ==========================================
+const unsigned char* videoFrames[] = { NULL }; // Placeholder
+int videoTotalFrames = 0;
+int videoCurrentFrame = 0;
+unsigned long lastVideoFrameTime = 0;
+const int videoFrameDelay = 70; // 25 FPS
 
 // Forward declarations
 void showMainMenu();
@@ -297,6 +366,8 @@ void initPong();
 void updatePong();
 void drawPong();
 void handlePongInput();
+
+void drawVideoPlayer();
 
 // Button handlers
 void handleUp();
@@ -439,6 +510,11 @@ void loop() {
   
   // Game updates
   if (currentMillis - lastGameUpdate > gameUpdateInterval) {
+    // Poll Game Inputs (Smooth Movement)
+    if (currentState == STATE_GAME_SPACE_INVADERS) handleSpaceInvadersInput();
+    else if (currentState == STATE_GAME_SIDE_SCROLLER) handleSideScrollerInput();
+    else if (currentState == STATE_GAME_PONG) handlePongInput();
+
     switch(currentState) {
       case STATE_GAME_SPACE_INVADERS:
         updateSpaceInvaders();
@@ -454,6 +530,10 @@ void loop() {
         break;
     }
     lastGameUpdate = currentMillis;
+  }
+
+  if (currentState == STATE_VIDEO_PLAYER) {
+    drawVideoPlayer();
   }
 
   // Main Menu Animation
@@ -569,38 +649,39 @@ void updateSpaceInvaders() {
   
   unsigned long now = millis();
   
+  updateParticles();
+  if (screenShake > 0) screenShake--;
+
   // Decrease shield
   if (invaders.shieldTime > 0) invaders.shieldTime--;
   
-  // Move enemies
-  if (now - invaders.lastEnemyMove > 800) {
-    bool hitEdge = false;
-    
+  // Smooth Enemy Movement
+  bool hitEdge = false;
+  float enemySpeed = 0.2 + (invaders.level * 0.05); // Speed increases with level
+
+  for (int i = 0; i < MAX_ENEMIES; i++) {
+    if (invaders.enemies[i].active) {
+      invaders.enemies[i].x += invaders.enemyDirection * enemySpeed;
+
+      if ((invaders.enemyDirection > 0 && invaders.enemies[i].x >= SCREEN_WIDTH - 8) ||
+          (invaders.enemyDirection < 0 && invaders.enemies[i].x <= 0)) {
+        hitEdge = true;
+      }
+    }
+  }
+
+  if (hitEdge) {
+    invaders.enemyDirection *= -1;
     for (int i = 0; i < MAX_ENEMIES; i++) {
       if (invaders.enemies[i].active) {
-        invaders.enemies[i].x += invaders.enemyDirection * 5;
-        
-        if (invaders.enemies[i].x <= 0 || invaders.enemies[i].x >= SCREEN_WIDTH - 8) {
-          hitEdge = true;
+        invaders.enemies[i].y += 4; // Step down
+        // Check if enemy reached player
+        if (invaders.enemies[i].y >= invaders.playerY) {
+          invaders.lives = 0;
+          screenShake = 10;
         }
       }
     }
-    
-    if (hitEdge) {
-      invaders.enemyDirection *= -1;
-      for (int i = 0; i < MAX_ENEMIES; i++) {
-        if (invaders.enemies[i].active) {
-          invaders.enemies[i].y += 4;
-          
-          // Check if enemy reached player
-          if (invaders.enemies[i].y >= invaders.playerY) {
-            invaders.lives = 0;
-          }
-        }
-      }
-    }
-    
-    invaders.lastEnemyMove = now;
   }
   
   // Enemy shooting
@@ -624,7 +705,7 @@ void updateSpaceInvaders() {
   // Move bullets
   for (int i = 0; i < MAX_BULLETS; i++) {
     if (invaders.bullets[i].active) {
-      invaders.bullets[i].y -= 4;
+      invaders.bullets[i].y -= 2.5; // Smooth bullet speed
       if (invaders.bullets[i].y < 0) {
         invaders.bullets[i].active = false;
       }
@@ -633,7 +714,7 @@ void updateSpaceInvaders() {
   
   for (int i = 0; i < MAX_ENEMY_BULLETS; i++) {
     if (invaders.enemyBullets[i].active) {
-      invaders.enemyBullets[i].y += 3;
+      invaders.enemyBullets[i].y += 1.5; // Smooth enemy bullet speed
       if (invaders.enemyBullets[i].y > SCREEN_HEIGHT) {
         invaders.enemyBullets[i].active = false;
       }
@@ -667,6 +748,9 @@ void updateSpaceInvaders() {
               invaders.enemies[j].active = false;
               invaders.score += (invaders.enemies[j].type + 1) * 10;
               
+              spawnExplosion(invaders.enemies[j].x + 4, invaders.enemies[j].y + 3, 5);
+              screenShake = 2;
+
               // Spawn powerup
               if (random(0, 10) < 3) {
                 for (int k = 0; k < MAX_POWERUPS; k++) {
@@ -698,6 +782,7 @@ void updateSpaceInvaders() {
           
           invaders.enemyBullets[i].active = false;
           invaders.lives--;
+          screenShake = 6;
           ledError();
           
           if (invaders.lives <= 0) {
@@ -761,9 +846,18 @@ void updateSpaceInvaders() {
 
 void drawSpaceInvaders() {
   display.clearDisplay();
+
+  // Apply Screen Shake
+  int shakeX = 0;
+  int shakeY = 0;
+  if (screenShake > 0) {
+    shakeX = random(-screenShake, screenShake + 1);
+    shakeY = random(-screenShake, screenShake + 1);
+  }
+
   drawBatteryIndicator();
   
-  // Draw HUD
+  // Draw HUD (Fixed position, no shake)
   display.setTextSize(1);
   display.setCursor(2, 2);
   display.print("L:");
@@ -779,10 +873,10 @@ void drawSpaceInvaders() {
   
   // Draw player
   if (invaders.shieldTime > 0 && (millis() / 100) % 2 == 0) {
-    display.drawCircle(invaders.playerX + 4, invaders.playerY + 3, 8, SSD1306_WHITE);
+    display.drawCircle(invaders.playerX + 4 + shakeX, invaders.playerY + 3 + shakeY, 8, SSD1306_WHITE);
   }
-  display.fillRect(invaders.playerX, invaders.playerY, invaders.playerWidth, invaders.playerHeight, SSD1306_WHITE);
-  display.drawPixel(invaders.playerX + 4, invaders.playerY - 1, SSD1306_WHITE);
+  display.fillRect(invaders.playerX + shakeX, invaders.playerY + shakeY, invaders.playerWidth, invaders.playerHeight, SSD1306_WHITE);
+  display.drawPixel(invaders.playerX + 4 + shakeX, invaders.playerY - 1 + shakeY, SSD1306_WHITE);
   
   // Draw enemies
   for (int i = 0; i < MAX_ENEMIES; i++) {
@@ -790,19 +884,19 @@ void drawSpaceInvaders() {
       // Different shapes for different types
       switch(invaders.enemies[i].type) {
         case 0: // Basic
-          display.fillRect(invaders.enemies[i].x, invaders.enemies[i].y, 8, 6, SSD1306_WHITE);
+          display.fillRect(invaders.enemies[i].x + shakeX, invaders.enemies[i].y + shakeY, 8, 6, SSD1306_WHITE);
           break;
         case 1: // Fast
           display.drawTriangle(
-            invaders.enemies[i].x + 4, invaders.enemies[i].y,
-            invaders.enemies[i].x, invaders.enemies[i].y + 6,
-            invaders.enemies[i].x + 8, invaders.enemies[i].y + 6,
+            invaders.enemies[i].x + 4 + shakeX, invaders.enemies[i].y + shakeY,
+            invaders.enemies[i].x + shakeX, invaders.enemies[i].y + 6 + shakeY,
+            invaders.enemies[i].x + 8 + shakeX, invaders.enemies[i].y + 6 + shakeY,
             SSD1306_WHITE
           );
           break;
         case 2: // Tank
-          display.fillRect(invaders.enemies[i].x, invaders.enemies[i].y, 8, 8, SSD1306_WHITE);
-          display.drawRect(invaders.enemies[i].x + 1, invaders.enemies[i].y + 1, 6, 6, SSD1306_BLACK);
+          display.fillRect(invaders.enemies[i].x + shakeX, invaders.enemies[i].y + shakeY, 8, 8, SSD1306_WHITE);
+          display.drawRect(invaders.enemies[i].x + 1 + shakeX, invaders.enemies[i].y + 1 + shakeY, 6, 6, SSD1306_BLACK);
           break;
       }
     }
@@ -811,15 +905,15 @@ void drawSpaceInvaders() {
   // Draw bullets
   for (int i = 0; i < MAX_BULLETS; i++) {
     if (invaders.bullets[i].active) {
-      display.drawLine(invaders.bullets[i].x, invaders.bullets[i].y,
-                      invaders.bullets[i].x, invaders.bullets[i].y + 3, SSD1306_WHITE);
+      display.drawLine(invaders.bullets[i].x + shakeX, invaders.bullets[i].y + shakeY,
+                      invaders.bullets[i].x + shakeX, invaders.bullets[i].y + 3 + shakeY, SSD1306_WHITE);
     }
   }
   
   for (int i = 0; i < MAX_ENEMY_BULLETS; i++) {
     if (invaders.enemyBullets[i].active) {
-      display.drawLine(invaders.enemyBullets[i].x, invaders.enemyBullets[i].y,
-                      invaders.enemyBullets[i].x, invaders.enemyBullets[i].y - 3, SSD1306_WHITE);
+      display.drawLine(invaders.enemyBullets[i].x + shakeX, invaders.enemyBullets[i].y + shakeY,
+                      invaders.enemyBullets[i].x + shakeX, invaders.enemyBullets[i].y - 3 + shakeY, SSD1306_WHITE);
     }
   }
   
@@ -828,18 +922,20 @@ void drawSpaceInvaders() {
     if (invaders.powerups[i].active) {
       switch(invaders.powerups[i].type) {
         case 0: // Weapon
-          display.drawCircle(invaders.powerups[i].x, invaders.powerups[i].y, 3, SSD1306_WHITE);
-          display.drawPixel(invaders.powerups[i].x, invaders.powerups[i].y, SSD1306_WHITE);
+          display.drawCircle(invaders.powerups[i].x + shakeX, invaders.powerups[i].y + shakeY, 3, SSD1306_WHITE);
+          display.drawPixel(invaders.powerups[i].x + shakeX, invaders.powerups[i].y + shakeY, SSD1306_WHITE);
           break;
         case 1: // Shield
-          display.drawCircle(invaders.powerups[i].x, invaders.powerups[i].y, 3, SSD1306_WHITE);
+          display.drawCircle(invaders.powerups[i].x + shakeX, invaders.powerups[i].y + shakeY, 3, SSD1306_WHITE);
           break;
         case 2: // Life
-          display.fillRect(invaders.powerups[i].x - 2, invaders.powerups[i].y - 2, 4, 4, SSD1306_WHITE);
+          display.fillRect(invaders.powerups[i].x - 2 + shakeX, invaders.powerups[i].y - 2 + shakeY, 4, 4, SSD1306_WHITE);
           break;
       }
     }
   }
+
+  drawParticles();
   
   // Game Over
   if (invaders.gameOver) {
@@ -857,7 +953,24 @@ void drawSpaceInvaders() {
 }
 
 void handleSpaceInvadersInput() {
-  // Handled in main loop via button handlers
+  if (invaders.gameOver) return;
+  float speed = 2.0;
+
+  if (digitalRead(BTN_LEFT) == LOW) {
+    invaders.playerX -= speed;
+  }
+  if (digitalRead(BTN_RIGHT) == LOW) {
+    invaders.playerX += speed;
+  }
+
+  // Clamp
+  if (invaders.playerX < 0) invaders.playerX = 0;
+  if (invaders.playerX > SCREEN_WIDTH - invaders.playerWidth) invaders.playerX = SCREEN_WIDTH - invaders.playerWidth;
+
+  // Auto-fire if holding touch button
+  if (digitalRead(TOUCH_LEFT) == HIGH) {
+     handleSelect(); // Re-use select logic for shooting
+  }
 }
 
 // ========== SIDE SCROLLER SHOOTER GAME ==========
@@ -898,10 +1011,13 @@ void updateSideScroller() {
   
   unsigned long now = millis();
   
+  updateParticles();
+  if (screenShake > 0) screenShake--;
+
   scroller.scrollOffset += 2;
   if (scroller.scrollOffset > SCREEN_WIDTH) scroller.scrollOffset = 0;
   
-  // Spawn obstacles
+  // Spawn obstacles (More varied speed)
   if (now - scroller.lastObstacleSpawn > 2000) {
     for (int i = 0; i < MAX_OBSTACLES; i++) {
       if (!scroller.obstacles[i].active) {
@@ -909,7 +1025,7 @@ void updateSideScroller() {
         scroller.obstacles[i].y = random(15, SCREEN_HEIGHT - 20);
         scroller.obstacles[i].width = 8;
         scroller.obstacles[i].height = 12;
-        scroller.obstacles[i].scrollSpeed = 2;
+        scroller.obstacles[i].scrollSpeed = 1.0 + (random(0, 10) / 5.0); // 1.0 to 3.0
         scroller.obstacles[i].active = true;
         break;
       }
@@ -948,8 +1064,8 @@ void updateSideScroller() {
   // Move and update enemies
   for (int i = 0; i < MAX_SCROLLER_ENEMIES; i++) {
     if (scroller.enemies[i].active) {
-      scroller.enemies[i].x -= 2;
-      scroller.enemies[i].y += scroller.enemies[i].dirY;
+      scroller.enemies[i].x -= 1.0; // Smoother enemy
+      scroller.enemies[i].y += scroller.enemies[i].dirY * 0.5; // Smoother float
       
       // Bounce off edges
       if (scroller.enemies[i].y < 12) {
@@ -982,8 +1098,8 @@ void updateSideScroller() {
   // Move bullets
   for (int i = 0; i < MAX_SCROLLER_BULLETS; i++) {
     if (scroller.bullets[i].active) {
-      scroller.bullets[i].x += scroller.bullets[i].dirX * 4;
-      scroller.bullets[i].y += scroller.bullets[i].dirY * 4;
+      scroller.bullets[i].x += scroller.bullets[i].dirX * 4.0;
+      scroller.bullets[i].y += scroller.bullets[i].dirY * 4.0;
       
       if (scroller.bullets[i].x < 0 || scroller.bullets[i].x > SCREEN_WIDTH ||
           scroller.bullets[i].y < 12 || scroller.bullets[i].y > SCREEN_HEIGHT) {
@@ -994,7 +1110,7 @@ void updateSideScroller() {
   
   for (int i = 0; i < MAX_OBSTACLES; i++) {
     if (scroller.enemyBullets[i].active) {
-      scroller.enemyBullets[i].x -= 3;
+      scroller.enemyBullets[i].x -= 2.0;
       if (scroller.enemyBullets[i].x < 0) {
         scroller.enemyBullets[i].active = false;
       }
@@ -1014,6 +1130,8 @@ void updateSideScroller() {
             
             if (scroller.enemies[j].health <= 0) {
               scroller.enemies[j].active = false;
+              spawnExplosion(scroller.enemies[j].x + 4, scroller.enemies[j].y + 4, 6);
+              screenShake = 2;
               scroller.score += (scroller.enemies[j].type + 1) * 15;
               scroller.specialCharge = min(scroller.specialCharge + 10, 100);
             }
@@ -1042,6 +1160,7 @@ void updateSideScroller() {
           abs(scroller.playerY - scroller.obstacles[i].y) < 8) {
         if (!scroller.shieldActive) {
           scroller.lives--;
+          screenShake = 6;
           ledError();
           if (scroller.lives <= 0) {
             scroller.gameOver = true;
@@ -1059,6 +1178,7 @@ void updateSideScroller() {
           abs(scroller.playerY - scroller.enemies[i].y) < 8) {
         if (!scroller.shieldActive) {
           scroller.lives--;
+          screenShake = 6;
           ledError();
           if (scroller.lives <= 0) {
             scroller.gameOver = true;
@@ -1076,6 +1196,7 @@ void updateSideScroller() {
           abs(scroller.enemyBullets[i].y - scroller.playerY) < 6) {
         if (!scroller.shieldActive) {
           scroller.lives--;
+          screenShake = 6;
           ledError();
           if (scroller.lives <= 0) {
             scroller.gameOver = true;
@@ -1089,6 +1210,14 @@ void updateSideScroller() {
 
 void drawSideScroller() {
   display.clearDisplay();
+
+  int shakeX = 0;
+  int shakeY = 0;
+  if (screenShake > 0) {
+    shakeX = random(-screenShake, screenShake + 1);
+    shakeY = random(-screenShake, screenShake + 1);
+  }
+
   drawBatteryIndicator();
   
   // Draw HUD
@@ -1108,7 +1237,7 @@ void drawSideScroller() {
   
   display.drawLine(0, 10, SCREEN_WIDTH, 10, SSD1306_WHITE);
   
-  // Draw scrolling background
+  // Draw scrolling background (Parallax)
   for (int i = 0; i < SCREEN_WIDTH; i += 16) {
     int x = (i + scroller.scrollOffset) % SCREEN_WIDTH;
     display.drawPixel(x, 12 + random(0, 3), SSD1306_WHITE);
@@ -1117,27 +1246,27 @@ void drawSideScroller() {
   
   // Draw player
   if (scroller.shieldActive && (millis() / 100) % 2 == 0) {
-    display.drawCircle(scroller.playerX, scroller.playerY, 7, SSD1306_WHITE);
+    display.drawCircle(scroller.playerX + shakeX, scroller.playerY + shakeY, 7, SSD1306_WHITE);
   }
   
   // Player ship design
   display.fillTriangle(
-    scroller.playerX + 4, scroller.playerY,
-    scroller.playerX - 4, scroller.playerY - 3,
-    scroller.playerX - 4, scroller.playerY + 3,
+    scroller.playerX + 4 + shakeX, scroller.playerY + shakeY,
+    scroller.playerX - 4 + shakeX, scroller.playerY - 3 + shakeY,
+    scroller.playerX - 4 + shakeX, scroller.playerY + 3 + shakeY,
     SSD1306_WHITE
   );
-  display.drawLine(scroller.playerX - 4, scroller.playerY - 2,
-                  scroller.playerX - 6, scroller.playerY - 4, SSD1306_WHITE);
-  display.drawLine(scroller.playerX - 4, scroller.playerY + 2,
-                  scroller.playerX - 6, scroller.playerY + 4, SSD1306_WHITE);
+  display.drawLine(scroller.playerX - 4 + shakeX, scroller.playerY - 2 + shakeY,
+                  scroller.playerX - 6 + shakeX, scroller.playerY - 4 + shakeY, SSD1306_WHITE);
+  display.drawLine(scroller.playerX - 4 + shakeX, scroller.playerY + 2 + shakeY,
+                  scroller.playerX - 6 + shakeX, scroller.playerY + 4 + shakeY, SSD1306_WHITE);
   
   // Draw obstacles
   for (int i = 0; i < MAX_OBSTACLES; i++) {
     if (scroller.obstacles[i].active) {
-      display.fillRect(scroller.obstacles[i].x, scroller.obstacles[i].y,
+      display.fillRect(scroller.obstacles[i].x + shakeX, scroller.obstacles[i].y + shakeY,
                       scroller.obstacles[i].width, scroller.obstacles[i].height, SSD1306_WHITE);
-      display.drawRect(scroller.obstacles[i].x + 1, scroller.obstacles[i].y + 1,
+      display.drawRect(scroller.obstacles[i].x + 1 + shakeX, scroller.obstacles[i].y + 1 + shakeY,
                       scroller.obstacles[i].width - 2, scroller.obstacles[i].height - 2, SSD1306_BLACK);
     }
   }
@@ -1147,18 +1276,18 @@ void drawSideScroller() {
     if (scroller.enemies[i].active) {
       switch(scroller.enemies[i].type) {
         case 0: // Basic
-          display.fillCircle(scroller.enemies[i].x, scroller.enemies[i].y, 4, SSD1306_WHITE);
+          display.fillCircle(scroller.enemies[i].x + shakeX, scroller.enemies[i].y + shakeY, 4, SSD1306_WHITE);
           break;
         case 1: // Shooter
-          display.fillRect(scroller.enemies[i].x - 4, scroller.enemies[i].y - 4, 8, 8, SSD1306_WHITE);
-          display.drawLine(scroller.enemies[i].x - 2, scroller.enemies[i].y,
-                          scroller.enemies[i].x + 2, scroller.enemies[i].y, SSD1306_BLACK);
+          display.fillRect(scroller.enemies[i].x - 4 + shakeX, scroller.enemies[i].y - 4 + shakeY, 8, 8, SSD1306_WHITE);
+          display.drawLine(scroller.enemies[i].x - 2 + shakeX, scroller.enemies[i].y + shakeY,
+                          scroller.enemies[i].x + 2 + shakeX, scroller.enemies[i].y + shakeY, SSD1306_BLACK);
           break;
         case 2: // Kamikaze
           display.drawTriangle(
-            scroller.enemies[i].x - 6, scroller.enemies[i].y,
-            scroller.enemies[i].x + 2, scroller.enemies[i].y - 4,
-            scroller.enemies[i].x + 2, scroller.enemies[i].y + 4,
+            scroller.enemies[i].x - 6 + shakeX, scroller.enemies[i].y + shakeY,
+            scroller.enemies[i].x + 2 + shakeX, scroller.enemies[i].y - 4 + shakeY,
+            scroller.enemies[i].x + 2 + shakeX, scroller.enemies[i].y + 4 + shakeY,
             SSD1306_WHITE
           );
           break;
@@ -1169,15 +1298,17 @@ void drawSideScroller() {
   // Draw bullets
   for (int i = 0; i < MAX_SCROLLER_BULLETS; i++) {
     if (scroller.bullets[i].active) {
-      display.fillCircle(scroller.bullets[i].x, scroller.bullets[i].y, 2, SSD1306_WHITE);
+      display.fillCircle(scroller.bullets[i].x + shakeX, scroller.bullets[i].y + shakeY, 2, SSD1306_WHITE);
     }
   }
   
   for (int i = 0; i < MAX_OBSTACLES; i++) {
     if (scroller.enemyBullets[i].active) {
-      display.fillRect(scroller.enemyBullets[i].x - 1, scroller.enemyBullets[i].y - 1, 2, 2, SSD1306_WHITE);
+      display.fillRect(scroller.enemyBullets[i].x - 1 + shakeX, scroller.enemyBullets[i].y - 1 + shakeY, 2, 2, SSD1306_WHITE);
     }
   }
+
+  drawParticles();
   
   // Game Over
   if (scroller.gameOver) {
@@ -1195,7 +1326,24 @@ void drawSideScroller() {
 }
 
 void handleSideScrollerInput() {
-  // Handled in main loop
+  if (scroller.gameOver) return;
+  float speed = 2.0;
+
+  if (digitalRead(BTN_LEFT) == LOW) scroller.playerX -= speed;
+  if (digitalRead(BTN_RIGHT) == LOW) scroller.playerX += speed;
+  if (digitalRead(BTN_UP) == LOW) scroller.playerY -= speed;
+  if (digitalRead(BTN_DOWN) == LOW) scroller.playerY += speed;
+
+  // Clamp
+  if (scroller.playerX < 0) scroller.playerX = 0;
+  if (scroller.playerX > SCREEN_WIDTH - scroller.playerWidth) scroller.playerX = SCREEN_WIDTH - scroller.playerWidth;
+  if (scroller.playerY < 12) scroller.playerY = 12;
+  if (scroller.playerY > SCREEN_HEIGHT - scroller.playerHeight) scroller.playerY = SCREEN_HEIGHT - scroller.playerHeight;
+
+  // Auto-fire
+  if (digitalRead(TOUCH_LEFT) == HIGH) {
+     handleSelect();
+  }
 }
 
 // ========== PONG GAME ==========
@@ -1219,36 +1367,50 @@ void initPong() {
 
 void updatePong() {
   if (pong.gameOver) return;
+
+  updateParticles();
+  if (screenShake > 0) screenShake--;
   
   // Move ball
   pong.ballX += pong.ballDirX * pong.ballSpeed;
   pong.ballY += pong.ballDirY * pong.ballSpeed;
   
   // Ball collision with top/bottom
-  if (pong.ballY <= 12 || pong.ballY >= SCREEN_HEIGHT - 2) {
+  if (pong.ballY <= 12) {
+    pong.ballY = 12;
+    pong.ballDirY *= -1;
+  }
+  if (pong.ballY >= SCREEN_HEIGHT - 2) {
+    pong.ballY = SCREEN_HEIGHT - 2;
     pong.ballDirY *= -1;
   }
   
   // Ball collision with paddles
   // Left paddle
   if (pong.ballX <= 6 && pong.ballX >= 2) {
-    if (pong.ballY >= pong.paddle1Y && pong.ballY <= pong.paddle1Y + pong.paddleHeight) {
+    if (pong.ballY >= pong.paddle1Y - 2 && pong.ballY <= pong.paddle1Y + pong.paddleHeight + 2) {
       pong.ballDirX = 1;
+      pong.ballSpeed = min(pong.ballSpeed + 0.2f, 5.0f); // Accelerate
+      spawnExplosion(pong.ballX, pong.ballY, 3);
+
       // Add spin based on where it hit the paddle
-      int hitPos = pong.ballY - (pong.paddle1Y + pong.paddleHeight / 2);
-      if (hitPos > 5) pong.ballDirY = 1;
-      else if (hitPos < -5) pong.ballDirY = -1;
+      float hitPos = pong.ballY - (pong.paddle1Y + pong.paddleHeight / 2.0);
+      pong.ballDirY = hitPos / (pong.paddleHeight / 2.0); // -1.0 to 1.0
+
       ledQuickFlash();
     }
   }
   
   // Right paddle
   if (pong.ballX >= SCREEN_WIDTH - 6 && pong.ballX <= SCREEN_WIDTH - 2) {
-    if (pong.ballY >= pong.paddle2Y && pong.ballY <= pong.paddle2Y + pong.paddleHeight) {
+    if (pong.ballY >= pong.paddle2Y - 2 && pong.ballY <= pong.paddle2Y + pong.paddleHeight + 2) {
       pong.ballDirX = -1;
-      int hitPos = pong.ballY - (pong.paddle2Y + pong.paddleHeight / 2);
-      if (hitPos > 5) pong.ballDirY = 1;
-      else if (hitPos < -5) pong.ballDirY = -1;
+      pong.ballSpeed = min(pong.ballSpeed + 0.2f, 5.0f); // Accelerate
+      spawnExplosion(pong.ballX, pong.ballY, 3);
+
+      float hitPos = pong.ballY - (pong.paddle2Y + pong.paddleHeight / 2.0);
+      pong.ballDirY = hitPos / (pong.paddleHeight / 2.0);
+
       ledQuickFlash();
     }
   }
@@ -1280,11 +1442,11 @@ void updatePong() {
   
   // AI for right paddle
   if (pong.aiMode) {
-    int targetY = pong.ballY - pong.paddleHeight / 2;
-    int diff = targetY - pong.paddle2Y;
+    float targetY = pong.ballY - pong.paddleHeight / 2.0;
+    float diff = targetY - pong.paddle2Y;
     
-    // AI difficulty
-    int aiSpeed = pong.difficulty;
+    // AI difficulty (float speed)
+    float aiSpeed = pong.difficulty * 0.8;
     if (abs(diff) > aiSpeed) {
       if (diff > 0) pong.paddle2Y += aiSpeed;
       else pong.paddle2Y -= aiSpeed;
@@ -1300,6 +1462,13 @@ void drawPong() {
   display.clearDisplay();
   drawBatteryIndicator();
   
+  int shakeX = 0;
+  int shakeY = 0;
+  if (screenShake > 0) {
+    shakeX = random(-screenShake, screenShake + 1);
+    shakeY = random(-screenShake, screenShake + 1);
+  }
+
   // Draw score
   display.setTextSize(1);
   display.setCursor(30, 2);
@@ -1315,11 +1484,13 @@ void drawPong() {
   }
   
   // Draw paddles
-  display.fillRect(2, pong.paddle1Y, pong.paddleWidth, pong.paddleHeight, SSD1306_WHITE);
-  display.fillRect(SCREEN_WIDTH - 6, pong.paddle2Y, pong.paddleWidth, pong.paddleHeight, SSD1306_WHITE);
+  display.fillRect(2, pong.paddle1Y + shakeY, pong.paddleWidth, pong.paddleHeight, SSD1306_WHITE);
+  display.fillRect(SCREEN_WIDTH - 6, pong.paddle2Y + shakeY, pong.paddleWidth, pong.paddleHeight, SSD1306_WHITE);
   
   // Draw ball
-  display.fillCircle(pong.ballX, pong.ballY, 2, SSD1306_WHITE);
+  display.fillCircle(pong.ballX + shakeX, pong.ballY + shakeY, 2, SSD1306_WHITE);
+
+  drawParticles();
   
   // Game Over
   if (pong.gameOver) {
@@ -1338,7 +1509,15 @@ void drawPong() {
 }
 
 void handlePongInput() {
-  // Handled in main loop
+  if (pong.gameOver) return;
+  float speed = 2.5;
+
+  if (digitalRead(BTN_UP) == LOW) pong.paddle1Y -= speed;
+  if (digitalRead(BTN_DOWN) == LOW) pong.paddle1Y += speed;
+
+  // Clamp
+  if (pong.paddle1Y < 12) pong.paddle1Y = 12;
+  if (pong.paddle1Y > SCREEN_HEIGHT - pong.paddleHeight) pong.paddle1Y = SCREEN_HEIGHT - pong.paddleHeight;
 }
 
 // ========== GAME SELECT ==========
@@ -1639,7 +1818,8 @@ void showMainMenu() {
   MenuItem menuItems[] = {
     {"Chat AI", ICON_CHAT},
     {"WiFi", ICON_WIFI},
-    {"Games", ICON_GAME}
+    {"Games", ICON_GAME},
+    {"Video", ICON_VIDEO}
   };
   
   int numItems = sizeof(menuItems) / sizeof(MenuItem);
@@ -1721,6 +1901,36 @@ void handleMainMenuSelect() {
       currentState = STATE_GAME_SELECT;
       showGameSelect();
       break;
+    case 3: // Video Player
+      videoCurrentFrame = 0;
+      currentState = STATE_VIDEO_PLAYER;
+      break;
+  }
+}
+
+void drawVideoPlayer() {
+  // Simple frame timing
+  if (millis() - lastVideoFrameTime > videoFrameDelay) {
+    lastVideoFrameTime = millis();
+
+    display.clearDisplay();
+
+    if (videoTotalFrames > 0 && videoFrames[0] != NULL) {
+      display.drawBitmap(0, 0, videoFrames[videoCurrentFrame], SCREEN_WIDTH, SCREEN_HEIGHT, SSD1306_WHITE);
+
+      videoCurrentFrame++;
+      if (videoCurrentFrame >= videoTotalFrames) {
+        videoCurrentFrame = 0;
+      }
+    } else {
+      display.setCursor(10, 20);
+      display.setTextSize(1);
+      display.println("No Video Data");
+      display.setCursor(10, 35);
+      display.println("Add frames to code");
+    }
+
+    display.display();
   }
 }
 
@@ -2036,10 +2246,9 @@ void handleUp() {
       break;
     case STATE_KEYBOARD:
     case STATE_PASSWORD_INPUT:
-      if (cursorY > 0) {
-        cursorY--;
-        drawKeyboard();
-      }
+      cursorY--;
+      if (cursorY < 0) cursorY = 2; // Wrap to bottom
+      drawKeyboard();
       break;
     case STATE_CHAT_RESPONSE:
       if (scrollOffset > 0) {
@@ -2048,14 +2257,10 @@ void handleUp() {
       }
       break;
     case STATE_GAME_PONG:
-      if (pong.paddle1Y > 12) {
-        pong.paddle1Y -= 3;
-      }
+      // Handled in handlePongInput
       break;
     case STATE_GAME_SIDE_SCROLLER:
-      if (scroller.playerY > 15) {
-        scroller.playerY -= 3;
-      }
+      // Handled in handleSideScrollerInput
       break;
   }
 }
@@ -2063,7 +2268,7 @@ void handleUp() {
 void handleDown() {
   switch(currentState) {
     case STATE_MAIN_MENU:
-      if (menuSelection < 2) {
+      if (menuSelection < 3) {
         menuSelection++;
         menuTargetScrollY = menuSelection * 22;
         menuTextScrollX = 0;
@@ -2099,24 +2304,19 @@ void handleDown() {
       break;
     case STATE_KEYBOARD:
     case STATE_PASSWORD_INPUT:
-      if (cursorY < 2) {
-        cursorY++;
-        drawKeyboard();
-      }
+      cursorY++;
+      if (cursorY > 2) cursorY = 0; // Wrap to top
+      drawKeyboard();
       break;
     case STATE_CHAT_RESPONSE:
       scrollOffset += 10;
       displayResponse();
       break;
     case STATE_GAME_PONG:
-      if (pong.paddle1Y < SCREEN_HEIGHT - pong.paddleHeight) {
-        pong.paddle1Y += 3;
-      }
+       // Handled in handlePongInput
       break;
     case STATE_GAME_SIDE_SCROLLER:
-      if (scroller.playerY < SCREEN_HEIGHT - 8) {
-        scroller.playerY += 3;
-      }
+       // Handled in handleSideScrollerInput
       break;
   }
 }
@@ -2125,20 +2325,15 @@ void handleLeft() {
   switch(currentState) {
     case STATE_KEYBOARD:
     case STATE_PASSWORD_INPUT:
-      if (cursorX > 0) {
-        cursorX--;
-        drawKeyboard();
-      }
+      cursorX--;
+      if (cursorX < 0) cursorX = 9; // Wrap to right
+      drawKeyboard();
       break;
     case STATE_GAME_SPACE_INVADERS:
-      if (invaders.playerX > 0) {
-        invaders.playerX -= 4;
-      }
+      // Handled in handleSpaceInvadersInput
       break;
     case STATE_GAME_SIDE_SCROLLER:
-      if (scroller.playerX > 10) {
-        scroller.playerX -= 3;
-      }
+      // Handled in handleSideScrollerInput
       break;
   }
 }
@@ -2147,20 +2342,15 @@ void handleRight() {
   switch(currentState) {
     case STATE_KEYBOARD:
     case STATE_PASSWORD_INPUT:
-      if (cursorX < 9) {
-        cursorX++;
-        drawKeyboard();
-      }
+      cursorX++;
+      if (cursorX > 9) cursorX = 0; // Wrap to left
+      drawKeyboard();
       break;
     case STATE_GAME_SPACE_INVADERS:
-      if (invaders.playerX < SCREEN_WIDTH - invaders.playerWidth) {
-        invaders.playerX += 4;
-      }
+      // Handled in handleSpaceInvadersInput
       break;
     case STATE_GAME_SIDE_SCROLLER:
-      if (scroller.playerX < SCREEN_WIDTH - 15) {
-        scroller.playerX += 3;
-      }
+       // Handled in handleSideScrollerInput
       break;
   }
 }
@@ -2298,6 +2488,10 @@ void handleBackButton() {
       currentState = STATE_GAME_SELECT;
       menuSelection = 0;
       showGameSelect();
+      break;
+    case STATE_VIDEO_PLAYER:
+      currentState = STATE_MAIN_MENU;
+      showMainMenu();
       break;
   }
 }
