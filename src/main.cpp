@@ -31,7 +31,7 @@ Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 // Dual Gemini API Keys
 const char* geminiApiKey1 = "AIzaSyAtKmbcvYB8wuHI9bqkOhufJld0oSKv7zM";
 const char* geminiApiKey2 = "AIzaSyBvXPx3SrrRRJIU9Wf6nKcuQu9XjBlSH6Y";
-const char* geminiEndpoint = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent";
+const char* geminiEndpoint = "https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent";
 
 Preferences preferences;
 
@@ -280,6 +280,10 @@ int mainMenuSelection = 0;
 float menuTextScrollX = 0;
 unsigned long lastMenuTextScrollTime = 0;
 
+// Notification System
+String notificationMessage = "";
+unsigned long notificationEndTime = 0;
+
 int cursorX = 0, cursorY = 0;
 String userInput = "";
 String passwordInput = "";
@@ -341,9 +345,10 @@ void handleBackButton();
 void connectToWiFi(String ssid, String password);
 void scanWiFiNetworks();
 void displayResponse();
-void showStatus(String message, int delayMs);
 void forgetNetwork();
 void refreshCurrentScreen();
+void showNotification(String message, int duration);
+void drawNotificationOverlay();
 void drawBatteryIndicator();
 void drawWiFiSignalBars();
 void drawIcon(int x, int y, const unsigned char* icon);
@@ -949,6 +954,7 @@ void drawSpaceInvaders() {
     display.print(invaders.score);
   }
   
+  drawNotificationOverlay();
   display.display();
 }
 
@@ -1322,6 +1328,7 @@ void drawSideScroller() {
     display.print(scroller.score);
   }
   
+  drawNotificationOverlay();
   display.display();
 }
 
@@ -1505,6 +1512,7 @@ void drawPong() {
     }
   }
   
+  drawNotificationOverlay();
   display.display();
 }
 
@@ -1551,6 +1559,7 @@ void showGameSelect() {
     display.print(games[i]);
   }
   
+  drawNotificationOverlay();
   display.display();
 }
 
@@ -1616,6 +1625,7 @@ void showWiFiMenu() {
     display.print(menuItems[i]);
   }
   
+  drawNotificationOverlay();
   display.display();
 }
 
@@ -1779,6 +1789,7 @@ void showAPISelect() {
   }
   display.setTextColor(SSD1306_WHITE);
   
+  drawNotificationOverlay();
   display.display();
 }
 
@@ -1871,6 +1882,7 @@ void showMainMenu() {
     }
   }
   
+  drawNotificationOverlay();
   display.display();
 }
 
@@ -1884,9 +1896,7 @@ void handleMainMenuSelect() {
         currentState = STATE_API_SELECT;
         showAPISelect();
       } else {
-        ledError();
-        showStatus("WiFi not connected!\nGo to WiFi Settings", 2000);
-        showMainMenu();
+        showNotification("WiFi not connected!", 2000);
       }
       break;
     case 1: // WiFi
@@ -1930,11 +1940,40 @@ void drawVideoPlayer() {
       display.println("Add frames to code");
     }
 
+    drawNotificationOverlay();
     display.display();
   }
 }
 
 // ========== UTILITY FUNCTIONS ==========
+
+void showNotification(String message, int duration) {
+  notificationMessage = message;
+  notificationEndTime = millis() + duration;
+}
+
+void drawNotificationOverlay() {
+  if (millis() < notificationEndTime) {
+    int16_t x1, y1;
+    uint16_t w, h;
+    display.setTextSize(1);
+    display.setTextWrap(true);
+    display.getTextBounds(notificationMessage, 0, 0, &x1, &y1, &w, &h);
+
+    int boxW = w + 10;
+    int boxH = h + 10;
+    int boxX = (SCREEN_WIDTH - boxW) / 2;
+    int boxY = (SCREEN_HEIGHT - boxH) / 2;
+
+    display.fillRect(boxX, boxY, boxW, boxH, SSD1306_BLACK);
+    display.drawRect(boxX, boxY, boxW, boxH, SSD1306_WHITE);
+
+    display.setCursor(boxX + 5, boxY + 5);
+    display.setTextColor(SSD1306_WHITE);
+    display.print(notificationMessage);
+    display.setTextWrap(false);
+  }
+}
 
 void drawBatteryIndicator() {
   int battX = SCREEN_WIDTH - 22;
@@ -1975,27 +2014,6 @@ void drawIcon(int x, int y, const unsigned char* icon) {
   display.drawBitmap(x, y, icon, 8, 8, SSD1306_WHITE);
 }
 
-void showStatus(String message, int delayMs) {
-  int boxW = SCREEN_WIDTH - 20;
-  int boxH = 40;
-  int boxX = 10;
-  int boxY = (SCREEN_HEIGHT - boxH) / 2;
-
-  display.fillRect(boxX, boxY, boxW, boxH, SSD1306_BLACK);
-  display.drawRect(boxX, boxY, boxW, boxH, SSD1306_WHITE);
-
-  display.setCursor(boxX + 5, boxY + 5);
-  display.setTextSize(1);
-  display.setTextColor(SSD1306_WHITE);
-
-  display.print(message);
-  display.display();
-
-  if (delayMs > 0) {
-    delay(delayMs);
-  }
-}
-
 void showProgressBar(String title, int percent) {
   display.clearDisplay();
   display.setTextSize(1);
@@ -2018,6 +2036,7 @@ void showProgressBar(String title, int percent) {
   display.print(percent);
   display.print("%");
 
+  drawNotificationOverlay();
   display.display();
 }
 
@@ -2044,6 +2063,7 @@ void showLoadingAnimation() {
     }
   }
 
+  drawNotificationOverlay();
   display.display();
 }
 
@@ -2053,7 +2073,7 @@ void forgetNetwork() {
   preferences.clear();
   preferences.end();
 
-  showStatus("Network forgotten", 1500);
+  showNotification("Network forgotten", 1500);
   scanWiFiNetworks();
 }
 
@@ -2074,12 +2094,11 @@ void connectToWiFi(String ssid, String password) {
     preferences.putString("ssid", ssid);
     preferences.putString("password", password);
     preferences.end();
-
-    showStatus("Connected!", 1500);
+    showNotification("Connected!", 1500);
     currentState = STATE_MAIN_MENU;
     showMainMenu();
   } else {
-    showStatus("Failed!", 1500);
+    showNotification("Failed to connect!", 2000);
     currentState = STATE_WIFI_MENU;
     showWiFiMenu();
   }
@@ -2164,6 +2183,7 @@ void drawKeyboard() {
   display.setCursor(2, 56);
   display.print("SEL:Type #:Mode");
 
+  drawNotificationOverlay();
   display.display();
 }
 
@@ -2533,12 +2553,13 @@ void displayResponse() {
       }
   }
 
+  drawNotificationOverlay();
   display.display();
 }
 
 void sendToGemini() {
   if (WiFi.status() != WL_CONNECTED) {
-    showStatus("No WiFi!", 2000);
+    showNotification("No WiFi!", 2000);
     return;
   }
 
@@ -2554,15 +2575,16 @@ void sendToGemini() {
   String apiKey = (selectedAPIKey == 1) ? geminiApiKey1 : geminiApiKey2;
   String url = String(geminiEndpoint) + "?key=" + apiKey;
 
-  JsonDocument doc;
-  JsonObject content = doc["contents"].add();
-  JsonObject parts = content["parts"].add();
-  parts["text"] = userInput;
+  // Escape special characters in userInput
+  String escapedUserInput = userInput;
+  escapedUserInput.replace("\\", "\\\\");
+  escapedUserInput.replace("\"", "\\\"");
+  escapedUserInput.replace("\n", "\\n");
 
-  String requestBody;
-  serializeJson(doc, requestBody);
+  String requestBody = "{\"contents\":[{\"parts\":[{\"text\":\"" + escapedUserInput + "\"}]}]}";
 
   Serial.println("Sending to Gemini...");
+  Serial.println(requestBody);
 
   http.begin(client, url);
   http.addHeader("Content-Type", "application/json");
@@ -2577,14 +2599,21 @@ void sendToGemini() {
     DeserializationError error = deserializeJson(responseDoc, response);
 
     if (!error) {
-      if (responseDoc.containsKey("candidates")) {
+      if (responseDoc.containsKey("candidates") &&
+          responseDoc["candidates"][0].containsKey("content") &&
+          responseDoc["candidates"][0]["content"].containsKey("parts") &&
+          responseDoc["candidates"][0]["content"]["parts"][0].containsKey("text")) {
+
          const char* text = responseDoc["candidates"][0]["content"]["parts"][0]["text"];
          aiResponse = String(text);
       } else {
          aiResponse = "Error: Invalid response format";
+         Serial.println(response);
       }
     } else {
-      aiResponse = "Error: JSON Parsing failed";
+      aiResponse = "Error: JSON Parsing failed. ";
+      aiResponse += error.c_str();
+      Serial.println(response);
     }
   } else {
     aiResponse = "Error: HTTP " + String(httpResponseCode);
