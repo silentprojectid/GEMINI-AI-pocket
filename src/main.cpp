@@ -7,6 +7,12 @@
 #include <ArduinoJson.h>
 #include <Preferences.h>
 
+// Performance settings
+#define CPU_FREQ 240
+#define I2C_FREQ 1000000
+#define TARGET_FPS 60
+#define FRAME_TIME (1000 / TARGET_FPS)
+
 // OLED Display settings
 #define SCREEN_WIDTH 128
 #define SCREEN_HEIGHT 64
@@ -300,7 +306,7 @@ unsigned long lastDebounce = 0;
 const unsigned long debounceDelay = 150;
 
 unsigned long lastGameUpdate = 0;
-const int gameUpdateInterval = 16; // ~60 FPS
+const int gameUpdateInterval = FRAME_TIME;
 
 // Delta Time for smooth, frame-rate independent movement
 unsigned long lastFrameMillis = 0;
@@ -465,7 +471,7 @@ void setup() {
   delay(1000);
 
   // High Performance Setup for ESP32-S3 N16R8
-  setCpuFrequencyMhz(240);
+  setCpuFrequencyMhz(CPU_FREQ);
   psramInit();
   
   Serial.println("\n=== ESP32-S3 Gaming Edition v1.0 ===");
@@ -474,7 +480,7 @@ void setup() {
   
   preferences.begin("wifi-creds", false);
   Wire.begin(SDA_PIN, SCL_PIN);
-  Wire.setClock(1000000); // Fast I2C for smoother display updates
+  Wire.setClock(I2C_FREQ); // Fast I2C for smoother display updates
   
   pinMode(BTN_UP, INPUT_PULLUP);
   pinMode(BTN_DOWN, INPUT_PULLUP);
