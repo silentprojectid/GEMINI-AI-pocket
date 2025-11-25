@@ -754,7 +754,7 @@ void updateSpaceInvaders() {
   
   // Smooth Enemy Movement
   bool hitEdge = false;
-  float enemySpeed = 20.0f + (invaders.level * 5.0f); // Speed in pixels per second
+  float enemySpeed = 5.0f + (invaders.level * 2.0f); // Speed in pixels per second
 
   for (int i = 0; i < MAX_ENEMIES; i++) {
     if (invaders.enemies[i].active) {
@@ -774,8 +774,12 @@ void updateSpaceInvaders() {
         invaders.enemies[i].y += 4; // Step down
         // Check if enemy reached player
         if (invaders.enemies[i].y >= invaders.playerY) {
-          invaders.lives = 0;
+          invaders.lives--;
+          invaders.enemies[i].active = false; // Enemy disappears
           screenShake = 10;
+          if (invaders.lives <= 0) {
+            invaders.gameOver = true;
+          }
         }
       }
     }
