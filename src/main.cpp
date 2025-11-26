@@ -70,7 +70,7 @@ Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 // Dual Gemini API Keys
 const char* geminiApiKey1 = "AIzaSyAtKmbcvYB8wuHI9bqkOhufJld0oSKv7zM";
 const char* geminiApiKey2 = "AIzaSyBvXPx3SrrRRJIU9Wf6nKcuQu9XjBlSH6Y";
-const char* geminiEndpoint = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent";
+const char* geminiEndpoint = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent";
 
 Preferences preferences;
 
@@ -2626,51 +2626,56 @@ void sendToGemini() {
   loadingFrame = 0;
 
   WiFiClientSecure client;
-  client.setInsecure();
+  client.setInsecure(); // Allow insecure connections
 
   HTTPClient http;
 
   String apiKey = (selectedAPIKey == 1) ? geminiApiKey1 : geminiApiKey2;
   String url = String(geminiEndpoint) + "?key=" + apiKey;
 
-  JsonDocument doc;
-  JsonObject content = doc["contents"].add();
-  JsonObject parts = content["parts"].add();
-  parts["text"] = userInput;
+  // Manually create the JSON payload
+  String escapedInput = userInput;
+  escapedInput.replace("\\", "\\\\");
+  escapedInput.replace("\"", "\\\"");
+  escapedInput.replace("\n", "\\n");
 
-  // Limit the response size to speed up the API call
-  JsonObject generationConfig = doc["generationConfig"].to<JsonObject>();
-  generationConfig["maxOutputTokens"] = 150;
+  String jsonPayload = "{\"contents\":[{\"parts\":[{\"text\":\"" + escapedInput + "\"}]}],";
+  jsonPayload += "\"generationConfig\": {\"maxOutputTokens\": 150}}";
 
-  String requestBody;
-  serializeJson(doc, requestBody);
 
   Serial.println("Sending to Gemini...");
+  Serial.println(jsonPayload);
+
 
   http.begin(client, url);
   http.addHeader("Content-Type", "application/json");
+  http.setTimeout(15000); // 15-second timeout
 
-  int httpResponseCode = http.POST(requestBody);
+  int httpResponseCode = http.POST(jsonPayload);
 
-  if (httpResponseCode > 0) {
+  if (httpResponseCode == 200) {
     String response = http.getString();
     Serial.println("Response received");
 
     JsonDocument responseDoc;
     DeserializationError error = deserializeJson(responseDoc, response);
 
-    if (!error) {
-      if (responseDoc.containsKey("candidates")) {
-         const char* text = responseDoc["candidates"][0]["content"]["parts"][0]["text"];
-         aiResponse = String(text);
+    if (!error && responseDoc.containsKey("candidates")) {
+      const char* text = responseDoc["candidates"][0]["content"]["parts"][0]["text"];
+      if (text) {
+        aiResponse = String(text);
       } else {
-         aiResponse = "Error: Invalid response format";
+        aiResponse = "Error: Empty response text.";
       }
     } else {
-      aiResponse = "Error: JSON Parsing failed";
+      aiResponse = "Error: JSON Parsing failed.";
+      Serial.println(error.c_str());
+      Serial.println(response);
     }
   } else {
-    aiResponse = "Error: HTTP " + String(httpResponseCode);
+    String response = http.getString();
+    aiResponse = "Error: HTTP " + String(httpResponseCode) + "\n" + response;
+    Serial.println(aiResponse);
   }
 
   http.end();
