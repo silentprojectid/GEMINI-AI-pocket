@@ -156,6 +156,7 @@ unsigned long perfLoopCount = 0;
 unsigned long perfLastTime = 0;
 int perfFPS = 0;
 int perfLPS = 0;
+bool showFPS = false;
 
 int systemMenuSelection = 0;
 
@@ -630,6 +631,10 @@ void setup() {
   
   ledSuccess();
   
+  preferences.begin("settings", true);
+  showFPS = preferences.getBool("showFPS", false);
+  preferences.end();
+
   preferences.begin("wifi-creds", true);
   String savedSSID = preferences.getString("ssid", "");
   String savedPassword = preferences.getString("password", "");
@@ -2555,18 +2560,22 @@ void showSystemMenu(int x_offset) {
     "Performance",
     "Network",
     "Device Info",
+    "Show FPS: ",
     "Reboot",
     "Back"
   };
 
-  for (int i = 0; i < 5; i++) {
-    display.setCursor(x_offset + 10, 18 + i * 9);
+  for (int i = 0; i < 6; i++) {
+    display.setCursor(x_offset + 10, 18 + i * 8);
     if (i == systemMenuSelection) {
       display.print("> ");
     } else {
       display.print("  ");
     }
     display.print(items[i]);
+    if (i == 3) {
+        display.print(showFPS ? "ON" : "OFF");
+    }
   }
 
   display.display();
@@ -2578,6 +2587,12 @@ void handleSystemMenuSelect() {
     case 1: changeState(STATE_SYSTEM_NET); break;
     case 2: changeState(STATE_SYSTEM_DEVICE); break;
     case 3:
+      showFPS = !showFPS;
+      preferences.begin("settings", false);
+      preferences.putBool("showFPS", showFPS);
+      preferences.end();
+      break;
+    case 4:
       display.clearDisplay();
       display.setCursor(30, 30);
       display.print("Rebooting...");
@@ -2585,7 +2600,7 @@ void handleSystemMenuSelect() {
       delay(500);
       ESP.restart();
       break;
-    case 4: changeState(STATE_MAIN_MENU); break;
+    case 5: changeState(STATE_MAIN_MENU); break;
   }
 }
 
@@ -2735,6 +2750,13 @@ void drawStatusBar() {
     display.setCursor(0, 2);
     display.setTextSize(1);
     display.print(cachedTimeStr);
+  }
+
+  // Draw Realtime FPS Overlay
+  if (showFPS) {
+      display.setCursor(35, 2);
+      display.setTextSize(1);
+      display.print(perfFPS);
   }
 }
 
@@ -3091,7 +3113,7 @@ void handleDown() {
       }
       break;
     case STATE_SYSTEM_MENU:
-      if (systemMenuSelection < 4) {
+      if (systemMenuSelection < 5) {
         systemMenuSelection++;
       }
       break;
