@@ -902,15 +902,15 @@ void ledQuickFlash() {
 
 void showBootScreen() {
   const char* bootLogs[] = {
-    "BOOT SEQUENCE INITIATED...",
-    "CPU: ESP32-S3 [OK]",
-    "MEM: PSRAM DETECTED [OK]",
-    "FS: MOUNTING LITTLEFS...",
-    " > FS MOUNTED [SUCCESS]",
-    "NET: WIFI ADAPTER... [UP]",
-    "AI: GEMINI API... [READY]",
-    "GPU: OVERCLOCK I2C... [DONE]",
-    "SYSTEM READY. STARTING UI..."
+    "> INIT KERNEL... [OK]",
+    "> CPU: ESP32-S3 @240MHz",
+    "> MEM: PSRAM DETECTED",
+    "> FS: MOUNTING... [OK]",
+    "> SECURITY: BYPASS...",
+    "> NET: SCANNING... [UP]",
+    "> AI CORE: ONLINE",
+    "> GPU: I2C SYNC... [OK]",
+    "> ACCESS GRANTED"
   };
 
   display.setFont(&Org_01);
@@ -918,46 +918,64 @@ void showBootScreen() {
   display.setTextColor(SSD1306_WHITE);
 
   int totalLogs = 9;
+  int lineHeight = 7;
+  int maxLines = 7;
 
+  // Typewriter effect variables
   for (int i = 0; i < totalLogs; i++) {
-    display.clearDisplay();
+    String currentLine = bootLogs[i];
+    int len = currentLine.length();
 
-    // Draw logs scrolling up
-    // Org_01 is a small font (~6px high). We can fit more lines.
-    // Cursor Y is baseline, so we start at y=6
-    int lineHeight = 7;
-    int maxLines = 7;
-    int startIdx = (i >= maxLines) ? (i - maxLines + 1) : 0;
+    // Type out the current line
+    for (int charIdx = 0; charIdx <= len; charIdx++) {
+      display.clearDisplay();
 
-    for (int j = startIdx; j <= i; j++) {
-      display.setCursor(0, 6 + (j - startIdx) * lineHeight);
-      display.println(bootLogs[j]);
+      // Draw previous lines (scrolling)
+      int startIdx = (i >= maxLines) ? (i - maxLines + 1) : 0;
+      for (int j = startIdx; j < i; j++) {
+        display.setCursor(0, 6 + (j - startIdx) * lineHeight);
+        display.println(bootLogs[j]);
+      }
+
+      // Draw current line being typed
+      if (i >= startIdx) {
+        display.setCursor(0, 6 + (i - startIdx) * lineHeight);
+        display.print(currentLine.substring(0, charIdx));
+        // Blinking cursor
+        if ((millis() / 100) % 2 == 0) {
+            display.print("_");
+        }
+      }
+
+      // Progress Bar
+      int totalProgress = map(i * 100 + map(charIdx, 0, len, 0, 100), 0, totalLogs * 100, 5, 120);
+      display.drawRect(2, 58, 124, 4, SSD1306_WHITE);
+
+      // Glitch fill
+      if (random(0, 10) > 1) {
+          display.fillRect(4, 59, totalProgress, 2, SSD1306_WHITE);
+      } else {
+          // Glitch empty
+          display.fillRect(4, 59, max(0, totalProgress - 5), 2, SSD1306_WHITE);
+      }
+
+      display.display();
+
+      // Typing speed (fast)
+      delay(random(5, 20));
     }
 
-    // Progress Bar with "glitch" effect
-    int progress = map(i, 0, totalLogs - 1, 10, 124);
-    display.drawRect(2, 56, 124, 6, SSD1306_WHITE);
-
-    // Random glitch fill
-    if (random(0, 10) > 2) {
-       display.fillRect(4, 58, progress, 2, SSD1306_WHITE);
-    } else {
-       display.fillRect(4, 58, max(0, progress - 10), 2, SSD1306_WHITE);
-    }
-
-    display.display();
-
-    // Variable delay to simulate processing (Slower)
-    int waitTime = random(150, 400);
-    if (i == 3) waitTime = 800; // Fake delay on mounting
-    delay(waitTime);
+    // Slight pause after each line
+    delay(100);
   }
 
-  // Flash effect
-  display.invertDisplay(true);
-  delay(100);
-  display.invertDisplay(false);
-  delay(100);
+  // Final "ACCESS GRANTED" Flash
+  for(int k=0; k<3; k++) {
+     display.invertDisplay(true);
+     delay(50);
+     display.invertDisplay(false);
+     delay(50);
+  }
 
   display.setFont(NULL); // Reset to default font
   display.clearDisplay();
@@ -1011,8 +1029,6 @@ void setup() {
     for(;;);
   }
   
-  showBootScreen();
-  
   ledSuccess();
   
   showFPS = loadPreferenceBool("showFPS", false);
@@ -1048,6 +1064,7 @@ void setup() {
   if (pinLockEnabled) {
       inputPin = "";
       stateAfterUnlock = STATE_MAIN_MENU; // After boot unlock, always go to main menu
+      currentKeyboardMode = MODE_NUMBERS;
       currentState = STATE_PIN_LOCK;
   } else {
       showMainMenu();
@@ -1229,6 +1246,7 @@ void loop() {
             if (pinLockEnabled) {
                 inputPin = "";
                 stateAfterUnlock = stateBeforeScreenSaver;
+                currentKeyboardMode = MODE_NUMBERS;
                 currentState = STATE_PIN_LOCK;
             } else {
                 changeState(stateBeforeScreenSaver);
@@ -3873,6 +3891,8 @@ void handleUp() {
       break;
     case STATE_KEYBOARD:
     case STATE_PASSWORD_INPUT:
+    case STATE_PIN_LOCK:
+    case STATE_CHANGE_PIN:
       cursorY--;
       if (cursorY < 0) cursorY = 2; // Wrap to bottom
       break;
